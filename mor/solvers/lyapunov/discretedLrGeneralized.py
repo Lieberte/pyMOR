@@ -1,9 +1,8 @@
 from .lyapunov import baseGeneralizedLyapunovSolver
 from mor.operators import matrixOperator
-
+from mor.algorithm.lyapunov import solveLyapunovLrDiscreteGeneralized
 
 class discreteLrGeneralizedLyapunovSolver(baseGeneralizedLyapunovSolver):
-
     def solve(
         self,
         a: matrixOperator,
@@ -11,7 +10,12 @@ class discreteLrGeneralizedLyapunovSolver(baseGeneralizedLyapunovSolver):
         b: matrixOperator
     ) -> matrixOperator:
         self._validateInputs(a, e, b)
-        raise NotImplementedError(
-            "Discrete generalized Lyapunov low-rank solver not yet implemented. "
-            "Requires generalized LR-Smith or LR-Stein iteration algorithm."
+        maxIter = self.options.get('maxIter', 200)
+        tol = self.options.get('tol', 1e-10)
+        zData = solveLyapunovLrDiscreteGeneralized(
+            a, e, b,
+            backendName=self.backendName,
+            maxIter=maxIter,
+            tol=tol
         )
+        return matrixOperator(zData, backendName=self.backendName)

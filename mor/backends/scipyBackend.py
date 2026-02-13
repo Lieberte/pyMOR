@@ -87,6 +87,29 @@ class scipyBackend(backendBase):
             return np.asarray(data)
 
     specialized = backendBase.specialized
+
+    class lyapunov(backendBase.lyapunov):
+
+        @staticmethod
+        def solveContinuous(a, q):
+            return linalg.solve_continuous_lyapunov(a, q)
+
+        @staticmethod
+        def solveDiscrete(a, q):
+            return linalg.solve_discrete_lyapunov(a, q)
+
+        @staticmethod
+        def solveContinuousGeneralized(a, e, q):
+            raise NotImplementedError(
+                "Generalized continuous Lyapunov not in SciPy. Use algorithm.solveLyapunovLrGeneralized."
+            )
+
+        @staticmethod
+        def solveDiscreteGeneralized(a, e, q):
+            raise NotImplementedError(
+                "Generalized discrete Lyapunov not in SciPy. Use algorithm layer."
+            )
+
     @property
     def name(self):
         return 'scipy'

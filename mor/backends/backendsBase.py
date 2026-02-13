@@ -81,6 +81,25 @@ class backendBase(ABC):
         def gramMatrixNorm(w: Any, backend: 'backendBase') -> float:
             return backend.linalg.norm(backend.linalg.dot(w.T, w), ord=2)
 
+    class lyapunov:
+        """Dense full Lyapunov equation solvers (n×n output)"""
+
+        @staticmethod
+        def solveContinuous(a: Any, q: Any) -> Any:
+            raise NotImplementedError("Backend does not support continuous Lyapunov")
+
+        @staticmethod
+        def solveDiscrete(a: Any, q: Any) -> Any:
+            raise NotImplementedError("Backend does not support discrete Lyapunov")
+
+        @staticmethod
+        def solveContinuousGeneralized(a: Any, e: Any, q: Any) -> Any:
+            raise NotImplementedError("Backend does not support generalized continuous Lyapunov")
+
+        @staticmethod
+        def solveDiscreteGeneralized(a: Any, e: Any, q: Any) -> Any:
+            raise NotImplementedError("Backend does not support generalized discrete Lyapunov")
+
     @property
     @abstractmethod
     def name(self) -> str:

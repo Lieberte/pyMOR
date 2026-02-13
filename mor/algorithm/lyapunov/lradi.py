@@ -37,7 +37,7 @@ def _solveLyapunovLrCore( A: matrixOperator, B: matrixOperator, E: matrixOperato
     w = bData.copy()
     j = 0
     jShift = 0
-    res = backend.specialized.gramMatrixNorm(w)
+    res = backend.specialized.gramMatrixNorm(w, backend)
     bTol = res * tol
     while res > bTol and j < maxIter: 
         sigma = shifts[jShift]
@@ -61,7 +61,7 @@ def _solveLyapunovLrCore( A: matrixOperator, B: matrixOperator, E: matrixOperato
             zColumns.append(v.imag * (g * np.sqrt(d**2 + 1)))
             j += 2
         jShift += 1
-        res = backend.specialized.gramMatrixNorm(w)
+        res = backend.specialized.gramMatrixNorm(w, backend)
         if jShift >= shifts.size:
             shifts = _updateShifts(A, E, v, zColumns, shifts, shiftOptions, backend)
             jShift = 0
@@ -137,18 +137,18 @@ def _updateShifts( A: matrixOperator, E: matrixOperator | None, v: np.ndarray, z
     nc = options.subspaceColumns
     if nc == 1:
         if np.iscomplexobj(v):
-            q = backend.orthogonalizeQr(backend.hstack([v.real, v.imag]))
+            q = backend.decomposition.qrOrthogonalize(backend.array.hstack([v.real, v.imag]), backend)
         else:
-            q = backend.orthogonalizeQr(v)
+            q = backend.decomposition.qrOrthogonalize(v, backend)
     else:
-        zAll = backend.hstack(zColumns)
+        zAll = backend.array.hstack(zColumns)
         numCols = min(nc * v.shape[1], zAll.shape[1])
         if numCols == 0:
             return prevShifts
         z = zAll[:, -numCols:]
-        q = backend.orthogonalizeQr(z)
-    aProj = backend.dot(q.T, A.apply(q))
-    eProj = backend.dot(q.T, E.apply(q)) if E is not None else backend.eye(q.shape[1], dtype=A.dtype)
+        q = backend.decomposition.qrOrthogonalize(z, backend)
+    aProj = backend.linalg.dot(q.T, A.apply(q))
+    eProj = backend.linalg.dot(q.T, E.apply(q)) if E is not None else backend.array.eye(q.shape[1], dtype=A.dtype)
     shifts = _filterStableShifts(_computeGeneralizedEigenvalues(backend, aProj, eProj), selectPositiveImag=True)
     if shifts.size == 0:
         return prevShifts

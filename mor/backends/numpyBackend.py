@@ -63,6 +63,7 @@ class numpyBackend(backendBase):
         def toArray(data):
             return np.asarray(data)
     specialized = backendBase.specialized
+    lyapunov = backendBase.lyapunov
 
     @property
     def name(self):
