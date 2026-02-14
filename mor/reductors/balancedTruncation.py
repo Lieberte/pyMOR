@@ -25,15 +25,15 @@ class reducedSystem:
     order: int
 
 class balancedTruncationReductor:
-    def __init__(self, backendName: Optional[str] = None, **kwargs):
+    def __init__(self, globalBackendName: Optional[str] = None, **kwargs):
         self.lyapunovSolver = None
-        self.localBackend = backendRegistry.get(backendName)
+        self.localBackend = None
         self.svdAlgorithm = None
-        self._backendName = backendName
+        self._backendName = globalBackendName
         self.options = kwargs
 
     def _updateOptions(self, A: matrixOperator, B: matrixOperator, C: matrixOperator, D: Optional[matrixOperator] = None, E: Optional[matrixOperator] = None, isContinuous: bool = True, **kwargs):
-        self.lyapunovSolver = lyapunovRegistry.get(name=None, A=A, E=E, B=B, isContinuous=isContinuous, backendName=self._backendName)
+        self.lyapunovSolver = lyapunovRegistry.get(name=None, A=A, E=E, B=B, isContinuous=isContinuous)
         self.localBackend = backendRegistry.get(self._backendName)
         self.svdAlgorithm = algorithmRegistry.get('svd', 'auto', A=A, E=E, B=B)
 

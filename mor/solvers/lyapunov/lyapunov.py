@@ -5,79 +5,40 @@ from mor.operators import matrixOperator
 
 def _requireLyapunovSupport(backend) -> None:
     if not getattr(backend, 'supportsLyapunov', False):
-        raise ValueError(
-            f"Backend '{backend.name}' does not support Lyapunov. Use backend 'scipy'."
-        )
+        raise ValueError(f"Backend does not support Lyapunov.")
 
 class lyapunovSolverBase(ABC):
-    def __init__(self, backendName: str = 'numpy', **kwargs):
-        self.setBackend(backendName)
+    def __init__(self, globalBackendName: str, **kwargs):
+        self.localBackend = backendRegistry.get(globalBackendName)
         self.options = kwargs
 
     @abstractmethod
-    def solve(self, a: matrixOperator, b: matrixOperator) -> matrixOperator:
+    def solve(self, A: matrixOperator, E: Optional[matrixOperator], B: matrixOperator, C: matrixOperator) -> matrixOperator:
         pass
-
-    def setBackend(self, backendName: str):
-        self.backend = backendRegistry.get(backendName)
-        self._backendName = backendName
 
     @property
     def backendName(self) -> str:
         return self._backendName
 
-    def _validateInputs(self, a: matrixOperator, b: matrixOperator) -> None:
-        if a.shape[0] != a.shape[1]:
-            raise ValueError(f"Matrix A must be square, got shape {a.shape}")
-
-        if b.shape[0] != a.shape[0]:
-            raise ValueError(f"Matrix B rows {b.shape[0]} must match A size {a.shape[0]}")
-
-    def solveControllabilityAndObservability(self, A: matrixOperator, E: Optional[matrixOperator], B: matrixOperator, C: matrixOperator) -> Tuple[Any, Any, matrixOperator]:
-        n = A.shape[0]
-        backendName = self.backendName
-        Eeff = E if E is not None else matrixOperator(self.backend.array.eye(n, dtype=A.dtype), backendName=backendName)
-        At = matrixOperator(A.toNumpy().T, backendName=backendName)
-        Ct = matrixOperator(C.toNumpy().T, backendName=backendName)
-        Et = matrixOperator(Eeff.toNumpy().T, backendName=backendName)
-        Zc = self.solve(A, B).toNumpy()
-        Zo = self.solve(At, Ct).toNumpy()
-        return Zc, Zo, Eeff
-
-class baseGeneralizedLyapunovSolver(ABC):
-    def __init__(self, backendName: str = 'numpy', **kwargs):
-        self.setBackend(backendName)
-        self.options = kwargs
-
-    @abstractmethod
-    def solve(self,a: matrixOperator,e: matrixOperator,b: matrixOperator) -> matrixOperator:
-        pass
-
-    def setBackend(self, backendName: str):
-        self.backend = backendRegistry.get(backendName)
-        self._backendName = backendName
-
-    @property
-    def backendName(self) -> str:
-        return self._backendName
-
-    def _validateInputs(self,a: matrixOperator,e: matrixOperator,b: matrixOperator) -> None:
-        if a.shape[0] != a.shape[1]:
-            raise ValueError(f"Matrix A must be square, got shape {a.shape}")
-
-        if e.shape != a.shape:
-            raise ValueError(f"Matrix E shape {e.shape} must match A shape {a.shape}")
-
-        if b.shape[0] != a.shape[0]:
-            raise ValueError(f"Matrix B rows {b.shape[0]} must match A size {a.shape[0]}")
+    def _validateInputs(self, A: matrixOperator, E: Optional[matrixOperator], B: matrixOperator, C: matrixOperator) -> None:
+        if A.shape[0] != A.shape[1]:
+            raise ValueError(f"Matrix A must be square, got shape {A.shape}")
+        if B.shape[0] != A.shape[0]:
+            raise ValueError(f"Matrix B rows {B.shape[0]} must match A size {A.shape[0]}")
+        if C.shape[1] != A.shape[0]:
+            raise ValueError(f"Matrix C columns {C.shape[1]} must match A size {A.shape[0]}")
+        if E is not None and E.shape != A.shape:
+            raise ValueError(f"Matrix E shape {E.shape} must match A shape {A.shape}")
 
     def solveControllabilityAndObservability(self, A: matrixOperator, E: Optional[matrixOperator], B: matrixOperator, C: matrixOperator) -> Tuple[Any, Any, matrixOperator]:
         n = A.shape[0]
-        backendName = self.backendName
-        Eeff = E if E is not None else matrixOperator(self.backend.array.eye(n, dtype=A.dtype), backendName=backendName)
+        backendName = self.localBackend.name
+        Eeff = E if E is not None else matrixOperator(self.localBackend.array.eye(n, dtype=A.dtype), backendName=backendName)
         At = matrixOperator(A.toNumpy().T, backendName=backendName)
         Ct = matrixOperator(C.toNumpy().T, backendName=backendName)
         Et = matrixOperator(Eeff.toNumpy().T, backendName=backendName)
         Zc = self.solve(A, Eeff, B).toNumpy()
         Zo = self.solve(At, Et, Ct).toNumpy()
         return Zc, Zo, Eeff
+
+

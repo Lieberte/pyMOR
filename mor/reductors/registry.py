@@ -24,7 +24,6 @@ class reductorRegistry:
     def list(cls) -> list:
         return list(cls._reductors.keys())
 
-
 def registerReductor(name: str):
     def decorator(reductorClass):
         reductorRegistry.register(name, reductorClass)
