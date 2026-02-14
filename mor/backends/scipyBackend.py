@@ -100,15 +100,21 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def solveContinuousGeneralized(a, e, q):
-            raise NotImplementedError(
-                "Generalized continuous Lyapunov not in SciPy. Use algorithm.solveLyapunovLrGeneralized."
-            )
+            a = np.asarray(a)
+            e = np.asarray(e)
+            q = np.asarray(q)
+            aTilde = linalg.solve(e, a)
+            qTilde = -linalg.solve(e, linalg.solve(e.T, q.T).T)
+            return linalg.solve_continuous_lyapunov(aTilde, qTilde)
 
         @staticmethod
         def solveDiscreteGeneralized(a, e, q):
-            raise NotImplementedError(
-                "Generalized discrete Lyapunov not in SciPy. Use algorithm layer."
-            )
+            a = np.asarray(a)
+            e = np.asarray(e)
+            q = np.asarray(q)
+            aTilde = linalg.solve(e, a)
+            qTilde = linalg.solve(e, linalg.solve(e.T, q.T).T)
+            return linalg.solve_discrete_lyapunov(aTilde, qTilde)
 
     @property
     def name(self):
@@ -117,3 +123,7 @@ class scipyBackend(backendBase):
     @property
     def arrayType(self):
         return np.ndarray
+
+    @property
+    def supportsLyapunov(self):
+        return True

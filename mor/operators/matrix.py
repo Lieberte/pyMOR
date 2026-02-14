@@ -80,7 +80,8 @@ class matrixOperator(operatorBase):
     def solveShifted(self, E: Optional['matrixOperator'], shift: complex, rhs: Any, trans: bool = False,) -> Any:
         n = self.shape[0]
         a = self.toNumpy()
-        e = E.toNumpy() if E is not None else np.eye(n, dtype=a.dtype)
+        e = E.toNumpy() if E is not None else np.eye(n, dtype=a.dtype) 
+        #TODO: maybe use LU deconposition is more friendly for memory storage, but not sure about the specific performance; a test and comparion can be done here future work.. So for only used for lradi no repeated shifts calculation. but may needed for lrsmith and other solvers.
         m = a + shift * e
         if trans:
             return self.backend.linalg.solve(m.T, rhs)

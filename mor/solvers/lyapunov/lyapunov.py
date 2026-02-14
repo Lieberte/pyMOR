@@ -1,6 +1,13 @@
 from abc import ABC, abstractmethod
+from typing import Tuple, Any, Optional
 from mor.backends import backendRegistry
 from mor.operators import matrixOperator
+
+def _requireLyapunovSupport(backend) -> None:
+    if not getattr(backend, 'supportsLyapunov', False):
+        raise ValueError(
+            f"Backend '{backend.name}' does not support Lyapunov. Use backend 'scipy'."
+        )
 
 class lyapunovSolverBase(ABC):
     def __init__(self, backendName: str = 'numpy', **kwargs):
@@ -25,6 +32,17 @@ class lyapunovSolverBase(ABC):
 
         if b.shape[0] != a.shape[0]:
             raise ValueError(f"Matrix B rows {b.shape[0]} must match A size {a.shape[0]}")
+
+    def solveControllabilityAndObservability(self, A: matrixOperator, E: Optional[matrixOperator], B: matrixOperator, C: matrixOperator) -> Tuple[Any, Any, matrixOperator]:
+        n = A.shape[0]
+        backendName = self.backendName
+        Eeff = E if E is not None else matrixOperator(self.backend.array.eye(n, dtype=A.dtype), backendName=backendName)
+        At = matrixOperator(A.toNumpy().T, backendName=backendName)
+        Ct = matrixOperator(C.toNumpy().T, backendName=backendName)
+        Et = matrixOperator(Eeff.toNumpy().T, backendName=backendName)
+        Zc = self.solve(A, B).toNumpy()
+        Zo = self.solve(At, Ct).toNumpy()
+        return Zc, Zo, Eeff
 
 class baseGeneralizedLyapunovSolver(ABC):
     def __init__(self, backendName: str = 'numpy', **kwargs):
@@ -52,3 +70,14 @@ class baseGeneralizedLyapunovSolver(ABC):
 
         if b.shape[0] != a.shape[0]:
             raise ValueError(f"Matrix B rows {b.shape[0]} must match A size {a.shape[0]}")
+
+    def solveControllabilityAndObservability(self, A: matrixOperator, E: Optional[matrixOperator], B: matrixOperator, C: matrixOperator) -> Tuple[Any, Any, matrixOperator]:
+        n = A.shape[0]
+        backendName = self.backendName
+        Eeff = E if E is not None else matrixOperator(self.backend.array.eye(n, dtype=A.dtype), backendName=backendName)
+        At = matrixOperator(A.toNumpy().T, backendName=backendName)
+        Ct = matrixOperator(C.toNumpy().T, backendName=backendName)
+        Et = matrixOperator(Eeff.toNumpy().T, backendName=backendName)
+        Zc = self.solve(A, Eeff, B).toNumpy()
+        Zo = self.solve(At, Et, Ct).toNumpy()
+        return Zc, Zo, Eeff

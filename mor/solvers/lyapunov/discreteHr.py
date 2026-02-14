@@ -1,10 +1,11 @@
 import numpy as np
 
-from .lyapunov import lyapunovSolverBase
+from .lyapunov import lyapunovSolverBase, _requireLyapunovSupport
 from mor.operators import matrixOperator
 
 class discreteHrLyapunovSolver(lyapunovSolverBase):
     def solve(self, a: matrixOperator, b: matrixOperator) -> matrixOperator:
+        _requireLyapunovSupport(self.backend)
         self._validateInputs(a, b)
         if a.isSparse or b.isSparse:
             return self._solveSparse(a, b)

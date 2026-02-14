@@ -82,23 +82,21 @@ class backendBase(ABC):
             return backend.linalg.norm(backend.linalg.dot(w.T, w), ord=2)
 
     class lyapunov:
-        """Dense full Lyapunov equation solvers (n×n output)"""
-
         @staticmethod
         def solveContinuous(a: Any, q: Any) -> Any:
-            raise NotImplementedError("Backend does not support continuous Lyapunov")
+            pass
 
         @staticmethod
         def solveDiscrete(a: Any, q: Any) -> Any:
-            raise NotImplementedError("Backend does not support discrete Lyapunov")
+            pass
 
         @staticmethod
         def solveContinuousGeneralized(a: Any, e: Any, q: Any) -> Any:
-            raise NotImplementedError("Backend does not support generalized continuous Lyapunov")
+            pass
 
         @staticmethod
         def solveDiscreteGeneralized(a: Any, e: Any, q: Any) -> Any:
-            raise NotImplementedError("Backend does not support generalized discrete Lyapunov")
+            pass
 
     @property
     @abstractmethod
@@ -109,6 +107,10 @@ class backendBase(ABC):
     @abstractmethod
     def arrayType(self) -> type:
         pass
+
+    @property
+    def supportsLyapunov(self) -> bool:
+        return False
 
     @classmethod
     def isAvailable(cls) -> bool:

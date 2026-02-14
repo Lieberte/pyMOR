@@ -11,16 +11,6 @@ class continuousLrLyapunovSolver(lyapunovSolverBase):
         trans = self.options.get('trans', False)
         initMaxiter = self.options.get('initMaxiter', 20)
         subspaceColumns = self.options.get('subspaceColumns', 6)
-        shiftOpts = shiftComputationOptions(
-            initMaxiter=initMaxiter,
-            subspaceColumns=subspaceColumns
-        )
-        zData = solveLyapunovLr(
-            a, b,
-            trans=trans,
-            backendName=self.backendName,
-            tol=tol,
-            maxIter=maxIter,
-            shiftOptions=shiftOpts
-        )
+        shiftOpts = shiftComputationOptions(initMaxiter=initMaxiter,subspaceColumns=subspaceColumns)
+        zData = solveLyapunovLr(a, b,trans=trans,backendName=self.backendName,tol=tol,maxIter=maxIter,shiftOptions=shiftOpts)
         return matrixOperator(zData, backendName=self.backendName)

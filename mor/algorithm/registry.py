@@ -1,4 +1,4 @@
-from typing import Dict, Type, Any
+from typing import Dict, Type, Any, Optional
 
 
 class algorithmRegistry:
@@ -12,14 +12,19 @@ class algorithmRegistry:
         cls._algorithms[category][variant] = algorithmClass
 
     @classmethod
-    def get(cls, category: str, variant: str = 'default', **kwargs):
+    def _selectSVDVariant(cls, A=None, E=None, B=None) -> str:
+        # TODO: move to mor.algorithm.auto, add variant selection by problem structure
+        return 'static'
+
+    @classmethod
+    def get(cls, category: str, variant: str = 'default', A=None, E=None, B=None, **kwargs):
         if category not in cls._algorithms:
             raise ValueError(f"Algorithm category '{category}' not registered")
-
+        if variant == 'auto':
+            variant = cls._selectSVDVariant(A, E, B) if category == 'svd' else variant
         if variant not in cls._algorithms[category]:
             available = ', '.join(cls._algorithms[category].keys())
             raise ValueError(f"Variant '{variant}' not found. Available: {available}")
-
         algorithmClass = cls._algorithms[category][variant]
         return algorithmClass(**kwargs)
 

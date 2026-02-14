@@ -33,6 +33,14 @@ class backendRegistry:
     def getDefault(cls) -> Optional[str]:
         return cls._default
 
+    @classmethod
+    def getPreferredForLyapunov(cls) -> str:
+        names = sorted(cls.list(), key=lambda n: -cls._priority.get(n, 0))
+        for name in names:
+            if cls.get(name).supportsLyapunov:
+                return name
+        return cls._default or names[0]
+
 def registerBackend(name: str, priority: int = 0):
     def decorator(backendClass):
         backendRegistry.register(name, backendClass, priority=priority)
