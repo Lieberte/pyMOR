@@ -1,5 +1,4 @@
-"""Reductor registry for layered selection."""
-from typing import Dict, Type, Optional, Any
+from typing import Dict, Type, Any
 
 from mor.backends import backendRegistry
 
@@ -12,13 +11,14 @@ class reductorRegistry:
         cls._reductors[name] = reductorClass
 
     @classmethod
-    def get(cls, name: str, backendName: Optional[str] = None, **kwargs) -> Any:
+    def get(cls, name: str, forceOptions: dict | None = None, globalBackendName: str | None = None, **kwargs) -> Any:
+        if forceOptions:
+            kwargs.update(forceOptions)
+            if 'name' in forceOptions:
+                name = forceOptions['name']
         if name not in cls._reductors:
-            raise ValueError(
-                f"Reductor '{name}' not registered. "
-                f"Available: {list(cls._reductors.keys())}"
-            )
-        return cls._reductors[name](backendName=backendName, **kwargs)
+            raise ValueError(f"Reductor '{name}' not registered. Available: {list(cls._reductors.keys())}")
+        return cls._reductors[name](globalBackendName=globalBackendName, **kwargs)
 
     @classmethod
     def list(cls) -> list:

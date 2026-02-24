@@ -1,28 +1,11 @@
-import numpy as np
-
-from .lyapunov import baseGeneralizedLyapunovSolver, _requireLyapunovSupport
 from mor.operators import matrixOperator
+from mor.solvers.registry import registerLyapunovSolver
+from .lyapunov import lyapunovSolver
 
-class continuousHrGeneralizedLyapunovSolver(baseGeneralizedLyapunovSolver):
-
-    def solve(
-        self,
-        a: matrixOperator,
-        e: matrixOperator,
-        b: matrixOperator
-    ) -> matrixOperator:
-        _requireLyapunovSupport(self.backend)
-        self._validateInputs(a, e, b)
-        if a.isSparse or e.isSparse or b.isSparse:
-            return self._solveDense(a.toDense(), e.toDense(), b.toDense())
-        return self._solveDense(a, e, b)
-
-    def _solveDense(self, a: matrixOperator, e: matrixOperator, b: matrixOperator) -> matrixOperator:
-        aData = a.toNumpy()
-        eData = e.toNumpy()
-        bData = b.toNumpy()
-        if bData.ndim == 1:
-            bData = bData[:, np.newaxis]
-        q = bData @ bData.T
-        xData = self.backend.lyapunov.solveContinuousGeneralized(aData, eData, q)
-        return matrixOperator(xData, backendName=self.backendName)
+@registerLyapunovSolver('continuousHrGeneralized')
+class continuousHrGeneralizedSolver(lyapunovSolver):
+    def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator) -> matrixOperator:
+        backend = self.localBackend
+        Q = backend.linalg.dot(B.data, B.data.T)
+        X_data = backend.lyapunov.solveContinuousGeneralized(A.data, E.data, Q)
+        return matrixOperator(X_data, backendName=backend.name)

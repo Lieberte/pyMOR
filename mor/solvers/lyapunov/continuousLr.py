@@ -1,16 +1,18 @@
-from .lyapunov import lyapunovSolverBase
 from mor.operators import matrixOperator
+from mor.solvers.registry import registerLyapunovSolver
+from .lyapunov import lyapunovSolver
 from mor.algorithm.lyapunov import solveLyapunovLr, shiftComputationOptions
 
-
-class continuousLrLyapunovSolver(lyapunovSolverBase):
-    def solve(self, a: matrixOperator, b: matrixOperator) -> matrixOperator:
-        self._validateInputs(a, b)
+@registerLyapunovSolver('continuousLr')
+class continuousLrSolver(lyapunovSolver):
+    def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator) -> matrixOperator:
+        backend = self.localBackend
         tol = self.options.get('tol', 1e-10)
         maxIter = self.options.get('maxIter', 500)
         trans = self.options.get('trans', False)
-        initMaxiter = self.options.get('initMaxiter', 20)
-        subspaceColumns = self.options.get('subspaceColumns', 6)
-        shiftOpts = shiftComputationOptions(initMaxiter=initMaxiter,subspaceColumns=subspaceColumns)
-        zData = solveLyapunovLr(a, b,trans=trans,backendName=self.backendName,tol=tol,maxIter=maxIter,shiftOptions=shiftOpts)
-        return matrixOperator(zData, backendName=self.backendName)
+        shiftOpts = shiftComputationOptions(
+            initMaxiter=self.options.get('initMaxiter', 20),
+            subspaceColumns=self.options.get('subspaceColumns', 6)
+        )
+        Z_data = solveLyapunovLr(A, B, trans=trans, backendName=backend.name, tol=tol, maxIter=maxIter, shiftOptions=shiftOpts)
+        return matrixOperator(Z_data, backendName=backend.name)
