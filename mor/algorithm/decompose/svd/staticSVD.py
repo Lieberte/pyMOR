@@ -1,9 +1,14 @@
 from typing import Any
-from .svd import svdBase
+from .svd import svdAlgorithm
 from mor.algorithm.registry import registerAlgorithm
 
 @registerAlgorithm('svd', 'static')
-class staticSVD(svdBase):
-
-    def decompose(self, xOperator, rank: int | None = None, fullMatrices: bool = False) -> tuple[Any, Any, Any]:
-        return xOperator.svd(fullMatrices=fullMatrices, rank=rank)
+class staticSVD(svdAlgorithm):
+    def decompose(self, xOperator: Any, rank: int | None = None, fullMatrices: bool = False) -> tuple[Any, Any, Any]:
+        backend = self.localBackend
+        U, S, Vt = backend.decomposition.svdDense(xOperator.data, fullMatrices=fullMatrices)
+        if rank is not None:
+            U = U[:, :rank]
+            S = S[:rank]
+            Vt = Vt[:rank, :]
+        return U, S, Vt

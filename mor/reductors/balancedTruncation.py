@@ -32,7 +32,7 @@ class balancedTruncationReductor:
         self.localBackend = backendRegistry.get(self._backendName)
         self.svdAlgorithm = algorithmRegistry.get('svd', 'auto', forceOptions=None, A=A, E=E, B=B)
 
-    def reduce(self, A: matrixOperator, B: matrixOperator, C: matrixOperator, D: matrixOperator | None = None, E: matrixOperator | None = None, *, order: int | None = None, maxError: float | None = None, isContinuous: bool = True) -> ReducedSystem:
+    def reduce(self, A: matrixOperator, B: matrixOperator, C: matrixOperator, D: matrixOperator | None = None, E: matrixOperator | None = None, *, order: int | None = None, maxError: float | None = None, isContinuous: bool = True) -> reducedSystem:
         self._updateOptions(A, B, C, E, isContinuous=isContinuous)
         backend = self.localBackend
         Zc, Zo, eEff = self.lyapunovSolver.solveControllabilityAndObservability(A, E, B, C)
@@ -41,6 +41,7 @@ class balancedTruncationReductor:
         mOp = matrixOperator(M, backendName=backend.name)
         U, S, Vt = self.svdAlgorithm.decompose(mOp, fullMatrices=False)
         hsv = S
+        # TODO: Add truncation strategy further as an algorithm
         if order is None and maxError is not None:
             for r in range(len(hsv), 0, -1):
                 if 2 * backend.array.sum(hsv[r:]) <= maxError:

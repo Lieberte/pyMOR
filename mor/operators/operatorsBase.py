@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
 from typing import Tuple, Any
 
+from mor.backends import backendRegistry
 
 class operatorBase(ABC):
-
-    def __init__(self, backendName: str = 'numpy'):
-        from mor.backends import backendRegistry
-        self.backend = backendRegistry.get(backendName)
+    def __init__(self, backendName: str | None = None):
+        self.localBackend = backendRegistry.get(backendName)
         self._backendName = backendName
 
     @property
@@ -16,30 +15,18 @@ class operatorBase(ABC):
 
     @property
     @abstractmethod
-    def dtype(self):
+    def dtype(self) -> Any:
         pass
 
     @property
     @abstractmethod
-    def format(self) -> str:
-        pass
-
-    @abstractmethod
-    def apply(self, x: Any) -> Any:
-        pass
-
-    @abstractmethod
-    def svd(self, fullMatrices: bool = False, rank: int = None) -> Tuple[Any, Any, Any]:
-        pass
-
-    @property
     def isSparse(self) -> bool:
-        return self.format == 'sparse'
+        pass
+
+    @abstractmethod
+    def apply(self, x: Any, trans: bool = False) -> Any:
+        pass
 
     @property
-    def isDense(self) -> bool:
-        return self.format == 'dense'
-
-    @property
-    def backendName(self) -> str:
+    def backendName(self) -> str | None:
         return self._backendName

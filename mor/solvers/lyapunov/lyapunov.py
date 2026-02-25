@@ -1,17 +1,21 @@
-from abc import ABC, abstractmethod
 from typing import Tuple, Any
 
 from mor.backends import backendRegistry
 from mor.operators import matrixOperator
+from mor.solvers.registry import registerLyapunovSolver
+from mor.algorithm.registry import algorithmRegistry
 
-class lyapunovSolver(ABC):
+@registerLyapunovSolver('unified')
+class lyapunovSolver:
     def __init__(self, backendName: str | None = None, **kwargs):
         self.localBackend = backendRegistry.get(backendName)
         self.options = kwargs
 
-    @abstractmethod
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator) -> matrixOperator:
-        pass
+        backend = self.localBackend
+        algorithm = algorithmRegistry.get(category='lyapunov',variant=self.options.get('variant', 'auto'),forceOptions=self.options,backendName=backend.name,A=A, E=E, B=B)
+        Z_data = algorithm.solve(A, E, B)
+        return matrixOperator(Z_data, backendName=backend.name)
 
     def _validateInputs(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, C: matrixOperator) -> None:
         if A.shape[0] != A.shape[1]:
