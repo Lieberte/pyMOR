@@ -1,10 +1,9 @@
 import numpy as np
+from scipy import linalg
+from scipy.sparse import issparse
+from scipy.sparse.linalg import svds, norm as spnorm
 from .backendsBase import backendBase
 from .registry import registerBackend
-
-from scipy import linalg
-from scipy.sparse.linalg import svds
-
 
 @registerBackend('scipy', priority=50)
 class scipyBackend(backendBase):
@@ -15,16 +14,18 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def qr(A, mode='reduced'):
-            if mode == 'reduced':
-                mode = 'economic'
-            return linalg.qr(A, mode=mode)
+            return linalg.qr(A, mode='economic' if mode == 'reduced' else mode)
 
         @staticmethod
         def norm(x, ord=None):
+            if issparse(x):
+                return spnorm(x, ord=ord)
             return linalg.norm(x, ord=ord)
 
         @staticmethod
         def dot(a, b):
+            if issparse(a):
+                return a @ b
             return np.dot(a, b)
 
     class decomposition(backendBase.decomposition):
@@ -40,21 +41,13 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def qrOrthogonalize(B, backend):
-            import scipy.sparse as sp
-            if sp.issparse(B):
+            if issparse(B):
                 from scipy.sparse.linalg import qr as sparse_qr
                 Q, _ = sparse_qr(B)
-                if sp.issparse(Q):
-                    Q = Q.toarray()
-                return Q
+                return Q.toarray() if issparse(Q) else Q
             if B.shape[1] == 1:
                 return B / linalg.norm(B)
-            n, k = B.shape
-            if n > 1000 and k < n // 10:
-                Q, _ = linalg.qr(B, mode='economic', pivoting=False, overwrite_a=False, check_finite=False)
-            else:
-                Q, _ = linalg.qr(B, mode='economic', check_finite=False)
-            return Q
+            return linalg.qr(B, mode='economic')[0]
 
     class eigen(backendBase.eigen):
         @staticmethod
@@ -86,10 +79,28 @@ class scipyBackend(backendBase):
         def toArray(data):
             return np.asarray(data)
 
-    specialized = backendBase.specialized
+        @staticmethod
+        def abs(data):
+            return np.abs(data)
+
+        @staticmethod
+        def sqrt(data):
+            return np.sqrt(data)
+
+        @staticmethod
+        def isfinite(data):
+            return np.isfinite(data)
+
+        @staticmethod
+        def array(data, dtype=None):
+            return np.array(data, dtype=dtype)
+
+    class specialized(backendBase.specialized):
+        @staticmethod
+        def gramMatrixNorm(w, backend):
+            return backend.linalg.norm(backend.linalg.dot(w.T, w), ord=2)
 
     class lyapunov(backendBase.lyapunov):
-
         @staticmethod
         def solveContinuous(a, q):
             return linalg.solve_continuous_lyapunov(a, q)
@@ -100,21 +111,15 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def solveContinuousGeneralized(a, e, q):
-            a = np.asarray(a)
-            e = np.asarray(e)
-            q = np.asarray(q)
-            aTilde = linalg.solve(e, a)
-            qTilde = -linalg.solve(e, linalg.solve(e.T, q.T).T)
-            return linalg.solve_continuous_lyapunov(aTilde, qTilde)
+            a_tilde = linalg.solve(e, a)
+            q_tilde = linalg.solve(e, linalg.solve(e, q.T).T)
+            return linalg.solve_continuous_lyapunov(a_tilde, q_tilde)
 
         @staticmethod
         def solveDiscreteGeneralized(a, e, q):
-            a = np.asarray(a)
-            e = np.asarray(e)
-            q = np.asarray(q)
-            aTilde = linalg.solve(e, a)
-            qTilde = linalg.solve(e, linalg.solve(e.T, q.T).T)
-            return linalg.solve_discrete_lyapunov(aTilde, qTilde)
+            a_tilde = linalg.solve(e, a)
+            q_tilde = linalg.solve(e, linalg.solve(e, q.T).T)
+            return linalg.solve_discrete_lyapunov(a_tilde, q_tilde)
 
     @property
     def name(self):

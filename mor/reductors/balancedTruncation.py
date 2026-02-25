@@ -28,9 +28,20 @@ class balancedTruncationReductor:
         self.options = kwargs
 
     def _updateOptions(self, A: matrixOperator, B: matrixOperator, C: matrixOperator, E: matrixOperator | None = None, isContinuous: bool = True):
-        self.lyapunovSolver = solverRegistry.get('lyapunov', 'auto', forceOptions=None, A=A, E=E, B=B, isContinuous=isContinuous)
+        self.lyapunovSolver = solverRegistry.get(
+            solverType='lyapunov',
+            variant='auto',
+            forceOptions=self.options,
+            A=A, E=E, B=B, C=C,
+            isContinuous=isContinuous
+        )
         self.localBackend = backendRegistry.get(self._backendName)
-        self.svdAlgorithm = algorithmRegistry.get('svd', 'auto', forceOptions=None, A=A, E=E, B=B)
+        self.svdAlgorithm = algorithmRegistry.get(
+            category='svd',
+            variant='auto',
+            forceOptions=self.options,
+            A=A, E=E, B=B
+        )
 
     def reduce(self, A: matrixOperator, B: matrixOperator, C: matrixOperator, D: matrixOperator | None = None, E: matrixOperator | None = None, *, order: int | None = None, maxError: float | None = None, isContinuous: bool = True) -> reducedSystem:
         self._updateOptions(A, B, C, E, isContinuous=isContinuous)

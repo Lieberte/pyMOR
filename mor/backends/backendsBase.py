@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 from typing import Tuple, Any
 import numpy as np
 
-
 class backendBase(ABC):
     class linalg:
         @staticmethod
@@ -25,6 +24,14 @@ class backendBase(ABC):
         def dot(a: Any, b: Any) -> Any:
             pass
 
+        @staticmethod
+        def transpose(a: Any) -> Any:
+            return getattr(a, 'T', a)
+
+        @staticmethod
+        def conj(a: Any) -> Any:
+            return getattr(a, 'conj', lambda: a)()
+
     class decomposition:
         @staticmethod
         @abstractmethod
@@ -43,12 +50,14 @@ class backendBase(ABC):
 
     class eigen:
         @staticmethod
-        def eigvalsGeneralized(A: Any, B: Any) -> np.ndarray:
-            raise NotImplementedError("Backend does not support generalized eigenvalues")
+        @abstractmethod
+        def eigvalsGeneralized(A: Any, B: Any) -> Any:
+            pass
 
         @staticmethod
-        def eigvals(A: Any) -> np.ndarray:
-            raise NotImplementedError("Backend does not support eigenvalues")
+        @abstractmethod
+        def eigvals(A: Any) -> Any:
+            pass
 
     class array:
         @staticmethod
@@ -75,6 +84,66 @@ class backendBase(ABC):
         @abstractmethod
         def toArray(data: Any) -> Any:
             pass
+
+        @staticmethod
+        def ndim(data: Any) -> int:
+            return getattr(data, 'ndim', 0)
+
+        @staticmethod
+        def shape(data: Any) -> Tuple[int, ...]:
+            return getattr(data, 'shape', ())
+
+        @staticmethod
+        def size(data: Any) -> int:
+            return getattr(data, 'size', 0)
+
+        @staticmethod
+        def reshape(data: Any, shape: Tuple[int, ...]) -> Any:
+            return getattr(data, 'reshape')(shape)
+
+        @staticmethod
+        def real(data: Any) -> Any:
+            return getattr(data, 'real', data)
+
+        @staticmethod
+        def imag(data: Any) -> Any:
+            return getattr(data, 'imag', 0.0)
+
+        @staticmethod
+        def abs(data: Any) -> Any:
+            return np.abs(data) # Default fallback
+
+        @staticmethod
+        def sqrt(data: Any) -> Any:
+            return np.sqrt(data) # Default fallback
+
+        @staticmethod
+        def sum(data: Any, axis: int | None = None) -> Any:
+            return getattr(data, 'sum')(axis=axis)
+
+        @staticmethod
+        def all(data: Any) -> bool:
+            return bool(getattr(data, 'all')())
+
+        @staticmethod
+        def isfinite(data: Any) -> Any:
+            return np.isfinite(data) # Default fallback
+
+        @staticmethod
+        def iscomplexobj(data: Any) -> bool:
+            return np.iscomplexobj(data)
+
+        @staticmethod
+        def argsort(data: Any) -> Any:
+            return np.argsort(data)
+
+        @staticmethod
+        def array(data: Any, dtype: Any = None) -> Any:
+            return np.array(data, dtype=dtype)
+
+        @staticmethod
+        def copy(data: Any) -> Any:
+            return getattr(data, 'copy')()
 
     class specialized:
         @staticmethod
