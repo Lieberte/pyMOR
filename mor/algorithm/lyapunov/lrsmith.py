@@ -1,6 +1,5 @@
 from dataclasses import dataclass
 from typing import Any, Optional
-
 from mor.backends import backendRegistry
 from mor.operators import matrixOperator
 from mor.algorithm.registry import registerAlgorithm
@@ -35,7 +34,7 @@ class lrsmithAlgorithm:
         else:
             w = A.apply(z)
         for _ in range(maxIter - 1):
-            res = self._discreteLyapunovResidualNorm(w, z, bData)
+            res = self.discreteLyapunovResidualNorm(w, z, bData)
             if res <= bTol:
                 break
             zNew = backend.array.hstack([w, bData])
@@ -46,7 +45,6 @@ class lrsmithAlgorithm:
             else:
                 w = A.apply(z)
             if maxRank is not None and backend.array.shape(z)[1] > maxRank:
-                # TODO: use algorithmRegistry for SVD
                 U, S, Vt = backend.decomposition.svdDense(z, fullMatrices=False)
                 z = backend.linalg.dot(U[:, :maxRank], backend.array.diag(S[:maxRank]))
                 if E is not None:
@@ -56,7 +54,7 @@ class lrsmithAlgorithm:
                     w = A.apply(z)
         return z
 
-    def _discreteLyapunovResidualNorm(self, u: Any, v: Any, w: Any) -> float:
+    def discreteLyapunovResidualNorm(self, u: Any, v: Any, w: Any) -> float:
         backend = self.localBackend
         utu = backend.linalg.dot(u.T, u)
         vtv = backend.linalg.dot(v.T, v)

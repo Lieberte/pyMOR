@@ -7,29 +7,29 @@ class backendLyapunovAlgorithm:
         self.localBackend = backendRegistry.get(backendName)
         self.options = kwargs
 
-    def _prepareQ(self, B: matrixOperator):
+    def prepareQ(self, B: matrixOperator):
         backend = self.localBackend
-        B_data = B.data
-        if backend.ndim(B_data) == 1:
-            B_data = backend.reshape(B_data, (-1, 1))
-        return backend.linalg.dot(B_data, B_data.T)
+        bData = B.data
+        if backend.array.ndim(bData) == 1:
+            bData = backend.array.reshape(bData, (-1, 1))
+        return backend.linalg.dot(bData, bData.T)
 
 @registerAlgorithm('lyapunov', 'continuousHr')
 class continuousHrAlgorithm(backendLyapunovAlgorithm):
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator):
-        return self.localBackend.lyapunov.solveContinuous(A.data, self._prepareQ(B))
+        return self.localBackend.lyapunov.solveContinuous(A.data, self.prepareQ(B))
 
 @registerAlgorithm('lyapunov', 'continuousHrGeneralized')
 class continuousHrGeneralizedAlgorithm(backendLyapunovAlgorithm):
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator):
-        return self.localBackend.lyapunov.solveContinuousGeneralized(A.data, E.data, self._prepareQ(B))
+        return self.localBackend.lyapunov.solveContinuousGeneralized(A.data, E.data, self.prepareQ(B))
 
 @registerAlgorithm('lyapunov', 'discreteHr')
 class discreteHrAlgorithm(backendLyapunovAlgorithm):
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator):
-        return self.localBackend.lyapunov.solveDiscrete(A.data, self._prepareQ(B))
+        return self.localBackend.lyapunov.solveDiscrete(A.data, self.prepareQ(B))
 
 @registerAlgorithm('lyapunov', 'discreteHrGeneralized')
 class discreteHrGeneralizedAlgorithm(backendLyapunovAlgorithm):
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator):
-        return self.localBackend.lyapunov.solveDiscreteGeneralized(A.data, E.data, self._prepareQ(B))
+        return self.localBackend.lyapunov.solveDiscreteGeneralized(A.data, E.data, self.prepareQ(B))

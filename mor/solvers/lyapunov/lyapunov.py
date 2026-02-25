@@ -13,11 +13,17 @@ class lyapunovSolver:
 
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator) -> matrixOperator:
         backend = self.localBackend
-        algorithm = algorithmRegistry.get(category='lyapunov',variant=self.options.get('variant', 'auto'),forceOptions=self.options,backendName=backend.name,A=A, E=E, B=B)
-        Z_data = algorithm.solve(A, E, B)
-        return matrixOperator(Z_data, backendName=backend.name)
+        algorithm = algorithmRegistry.get(
+            category='lyapunov',
+            variant=self.options.get('variant', 'auto'),
+            forceOptions=self.options,
+            backendName=backend.name,
+            A=A, E=E, B=B
+        )
+        zData = algorithm.solve(A, E, B)
+        return matrixOperator(zData, backendName=backend.name)
 
-    def _validateInputs(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, C: matrixOperator) -> None:
+    def validateInputs(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, C: matrixOperator) -> None:
         if A.shape[0] != A.shape[1]:
             raise ValueError(f"Matrix A must be square, got shape {A.shape}")
         if E is not None and E.shape != A.shape:
@@ -28,7 +34,7 @@ class lyapunovSolver:
             raise ValueError(f"Matrix C columns {C.shape[1]} must match A size {A.shape[0]}")
 
     def solveControllabilityAndObservability(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, C: matrixOperator, isContinuous: bool = True) -> Tuple[matrixOperator, matrixOperator, matrixOperator]:
-        self._validateInputs(A, E, B, C)
+        self.validateInputs(A, E, B, C)
         backend = self.localBackend
         At = matrixOperator(backend.linalg.transpose(A.data), backendName=backend.name)
         Ct = matrixOperator(backend.linalg.transpose(C.data), backendName=backend.name)
@@ -38,7 +44,7 @@ class lyapunovSolver:
             Zo = self.solve(At, Et, Ct)
             return Zc, Zo, E
         n = A.shape[0]
-        Eeff = matrixOperator(backend.array.eye(n, dtype=A.dtype), backendName=backend.name)
+        eEff = matrixOperator(backend.array.eye(n, dtype=A.dtype), backendName=backend.name)
         Zc = self.solve(A, None, B)
         Zo = self.solve(At, None, Ct)
-        return Zc, Zo, Eeff
+        return Zc, Zo, eEff

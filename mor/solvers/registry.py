@@ -13,7 +13,7 @@ class solverRegistry:
         cls._solvers[solverType][name] = solverClass
 
     @classmethod
-    def _resolveBackend(cls, solverType: str, backendName: str | None) -> str:
+    def resolveBackend(cls, solverType: str, backendName: str | None) -> str:
         if backendName and backendName != 'auto':
             return backendName
         if solverType in cls._defaultBackends:
@@ -25,7 +25,7 @@ class solverRegistry:
 
     @classmethod
     def get(cls, solverType: str, name: str | None = None, forceOptions: dict | None = None, backendName: str | None = None, **kwargs) -> Any:
-        backend = cls._resolveBackend(solverType, backendName)
+        backend = cls.resolveBackend(solverType, backendName)
         if forceOptions:
             kwargs.update(forceOptions)
             if 'name' in forceOptions:

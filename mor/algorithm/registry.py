@@ -14,7 +14,7 @@ class algorithmRegistry:
         cls._algorithms[category][variant] = algorithmClass
 
     @classmethod
-    def _resolveBackend(cls, category: str, backendName: str | None) -> str:
+    def resolveBackend(cls, category: str, backendName: str | None) -> str:
         if backendName and backendName != 'auto':
             return backendName
         if category in cls._defaultBackends:
@@ -26,7 +26,7 @@ class algorithmRegistry:
 
     @classmethod
     def get(cls, category: str, variant: str | None = None, forceOptions: dict | None = None, backendName: str | None = None, **kwargs) -> Any:
-        backend = cls._resolveBackend(category, backendName)
+        backend = cls.resolveBackend(category, backendName)
         if forceOptions:
             kwargs.update(forceOptions)
             if 'variant' in forceOptions:
