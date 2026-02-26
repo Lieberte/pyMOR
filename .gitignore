@@ -3,3 +3,5 @@
 /.qoder/
 /.cursor/
 /applicationTests/
+/.idea/
+/.gitignore
