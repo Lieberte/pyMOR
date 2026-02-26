@@ -5,164 +5,101 @@ from mor.backends import backendRegistry
 from mor.operators import matrixOperator
 from mor.algorithm.registry import registerAlgorithm, algorithmRegistry
 
+
 @dataclass(frozen=True, slots=True)
 class shiftComputationOptions:
-    initMaxIter: int = 20
-    subspaceColumns: int = 6
+    initMaxIter, subspaceColumns = 20, 6
 
 @registerAlgorithm('lyapunov', 'lradi')
 class lradiAlgorithm:
+    # TODO: Implement robust numerical handling for stiff systems
     def __init__(self, backendName: str | None = None, **kwargs):
-        self.localBackend = backendRegistry.get(backendName)
-        self.options = kwargs
+        self.localBackend, self.options = backendRegistry.get(backendName), kwargs
 
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator) -> Any:
-        backend = self.localBackend
-        n = A.shape[0]
-        bData = B.data
-        if backend.array.ndim(bData) == 1:
-            bData = backend.array.reshape(bData, (-1, 1))    
-        trans = self.options.get('trans', False)
-        tol = self.options.get('tol', 1e-10)
-        maxIter = self.options.get('maxIter', 500)
-        shiftOpts = self.options.get('shiftOptions')
-        if not isinstance(shiftOpts, shiftComputationOptions):
-            shiftOpts = shiftComputationOptions(**(shiftOpts if isinstance(shiftOpts, dict) else {}))
-        shifts = self.computeInitialShifts(A, E, bData, shiftOpts)
-        zColumns = []
-        w = backend.array.copy(bData)
-        j = 0
-        jShift = 0
+        backend, n, bData = self.localBackend, A.shape[0], B.data
+        if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))    
+        trans, tol, maxIter, shiftOpts = self.options.get('trans', False), self.options.get('tol', 1e-10), self.options.get('maxIter', 500), self.options.get('shiftOptions')
+        if not isinstance(shiftOpts, shiftComputationOptions): shiftOpts = shiftComputationOptions(**(shiftOpts if isinstance(shiftOpts, dict) else {}))
+        shifts, zColumns, w, j, jShift = self.computeInitialShifts(A, E, bData, shiftOpts), [], backend.array.copy(bData), 0, 0
         res = backend.specialized.gramMatrixNorm(w, backend)
         bTol = res * tol
         while res > bTol and j < maxIter:
             sigma = shifts[jShift]
-            sigmaReal = backend.array.real(sigma)
-            sigmaImag = backend.array.imag(sigma)
-            if backend.array.abs(sigmaImag) < 1e-14 * backend.array.abs(sigmaReal):
-                sigma = sigmaReal
-                sigmaImag = 0.0
-            # Linear solver for (A + sigma*E)v = w
-            linearSolver = algorithmRegistry.get(
-                category='linear',
-                variant=self.options.get('linearVariant', 'auto'),
-                backendName=backend.name,
-                A=A, E=E, shift=sigma, trans=trans
-            )
+            sigmaReal, sigmaImag = backend.array.real(sigma), backend.array.imag(sigma)
+            if backend.array.abs(sigmaImag) < 1e-14 * backend.array.abs(sigmaReal): sigma, sigmaImag = sigmaReal, 0.0
+            linearSolver = algorithmRegistry.get(category='linear', variant=self.options.get('linearVariant', 'auto'), backendName=backend.name, A=A, E=E, shift=sigma, trans=trans)
             vData = linearSolver.solve(A, w, E=E, shift=sigma, trans=trans)
-            
             if sigmaImag == 0:
                 s = sigmaReal
-                if E is not None:
-                    ev = E.apply(vData, trans=trans)
-                    w = w - (2 * s) * ev
-                else:
-                    w = w - (2 * s) * vData
+                w = w - (2 * s) * (E.apply(vData, trans=trans) if E is not None else vData)
                 zColumns.append(vData * backend.array.sqrt(-2 * s))
                 j += 1
             else:
-                gs = -4 * sigmaReal
-                d = sigmaReal / sigmaImag if backend.array.abs(sigmaImag) > 1e-14 else 0.0
-                if trans:
-                    vData = backend.array.conj(vData)
-                
+                gs, d = -4 * sigmaReal, sigmaReal / sigmaImag if backend.array.abs(sigmaImag) > 1e-14 else 0.0
+                if trans: vData = backend.array.conj(vData)
                 u = backend.array.real(vData) + backend.array.imag(vData) * d
-                if E is not None:
-                    eu = E.apply(u, trans=trans)
-                    w = w + gs * eu
-                else:
-                    w = w + gs * u
+                w = w + gs * (E.apply(u, trans=trans) if E is not None else u)
                 g = backend.array.sqrt(gs)
                 zColumns.append(u * g)
                 zColumns.append(backend.array.imag(vData) * (g * backend.array.sqrt(d**2 + 1)))
                 j += 2
             jShift += 1
             res = backend.specialized.gramMatrixNorm(w, backend)
-            if jShift >= backend.array.size(shifts):
-                shifts = self.updateShifts(A, E, vData, zColumns, shifts, shiftOpts)
-                jShift = 0
-        if len(zColumns) == 0:
-            return backend.array.zeros((n, 0), dtype=A.dtype)
-        return backend.array.hstack(zColumns)
+            if jShift >= backend.array.size(shifts): shifts, jShift = self.updateShifts(A, E, vData, zColumns, shifts, shiftOpts), 0
+        return backend.array.hstack(zColumns) if zColumns else backend.array.zeros((n, 0), dtype=A.dtype)
 
     def computeInitialShifts(self, A: matrixOperator, E: matrixOperator | None, bData: Any, options: shiftComputationOptions) -> Any:
         backend = self.localBackend
         def projectAndGetShifts(b: Any) -> Any:
             Q = backend.decomposition.qrOrthogonalize(b, backend)
-            aProj = backend.linalg.dot(Q.T, A.apply(Q))
-            eProj = backend.linalg.dot(Q.T, E.apply(Q)) if E is not None else backend.array.eye(Q.shape[1], dtype=A.dtype)
-            sh = backend.eigen.eigvalsGeneralized(aProj, eProj)
-            return self.filterStableShifts(sh)
+            aProj, eProj = backend.linalg.dot(Q.T, A.apply(Q)), backend.linalg.dot(Q.T, E.apply(Q)) if E is not None else backend.array.eye(Q.shape[1], dtype=A.dtype)
+            return self.filterStableShifts(backend.eigen.eigvalsGeneralized(aProj, eProj))
         shifts = projectAndGetShifts(bData)
-        if backend.array.size(shifts) > 0:
-            return shifts
+        if backend.array.size(shifts) > 0: return shifts
         for _ in range(options.initMaxIter - 1):
             expanded = [bData]
             for alpha in (-1e-2, -1e-1, -1.0, -10.0):
                 try:
-                    linearSolver = algorithmRegistry.get(category='linear',variant='shifted',backendName=backend.name,A=A, E=E, shift=alpha, trans=False)
+                    linearSolver = algorithmRegistry.get(category='linear', variant='shifted', backendName=backend.name, A=A, E=E, shift=alpha, trans=False)
                     vData = linearSolver.solve(A, bData, E=E, shift=alpha, trans=False)
-                    if backend.array.all(backend.array.isfinite(vData)):
-                        expanded.append(vData)
-                except Exception:
-                    continue
-            if len(expanded) <= 1:
-                break
-            bExp = backend.array.hstack(expanded)
-            shifts = projectAndGetShifts(bExp)
-            if backend.array.size(shifts) > 0:
-                return shifts
+                    if backend.array.all(backend.array.isfinite(vData)): expanded.append(vData)
+                except Exception: continue
+            if len(expanded) <= 1: break
+            shifts = projectAndGetShifts(backend.array.hstack(expanded))
+            if backend.array.size(shifts) > 0: return shifts
         return self.computeHeuristicShifts(A, E)
 
     def filterStableShifts(self, shifts: Any, tol: float = 1e-14, selectPositiveImag: bool = False) -> Any:
         backend = self.localBackend
-        realParts = backend.array.real(shifts)
-        absShifts = backend.array.abs(shifts)
+        realParts, absShifts = backend.array.real(shifts), backend.array.abs(shifts)
         mask = (realParts < 0) & (absShifts > tol) & (backend.array.abs(realParts) > tol)
-        if selectPositiveImag:
-            mask &= (backend.array.imag(shifts) >= 0)
+        if selectPositiveImag: mask &= (backend.array.imag(shifts) >= 0)
         return shifts[mask]
 
     def computeHeuristicShifts(self, A: matrixOperator, E: matrixOperator | None) -> Any:
-        backend = self.localBackend
-        n = A.shape[0]
+        backend, n = self.localBackend, A.shape[0]
         if n <= 256:
             try:
-                aData = A.data
-                eData = E.data if E is not None else backend.array.eye(n, dtype=A.dtype)
-                sh = self.filterStableShifts(backend.eigen.eigvalsGeneralized(aData, eData))
-                if backend.array.size(sh) > 0:
-                    absSh = backend.array.abs(sh)
-                    idx = backend.array.argsort(absSh)
-                    return sh[idx][:20]
-            except Exception:
-                pass
+                sh = self.filterStableShifts(backend.eigen.eigvalsGeneralized(A.data, E.data if E is not None else backend.array.eye(n, dtype=A.dtype)))
+                if backend.array.size(sh) > 0: return sh[backend.array.argsort(backend.array.abs(sh))][:20]
+            except Exception: pass
         return backend.array.array([-1e-3, -1e-2, -1e-1, -1.0, -10.0], dtype=A.dtype)
 
     def updateShifts(self, A: matrixOperator, E: matrixOperator | None, vData: Any, zColumns: list[Any], prevShifts: Any, options: shiftComputationOptions) -> Any:
-        backend = self.localBackend
-        nc = options.subspaceColumns
-        if nc == 1:
-            if backend.array.iscomplexobj(vData):
-                q = backend.decomposition.qrOrthogonalize(backend.array.hstack([backend.array.real(vData), backend.array.imag(vData)]), backend)
-            else:
-                q = backend.decomposition.qrOrthogonalize(vData, backend)
+        backend, nc = self.localBackend, options.subspaceColumns
+        if nc == 1: q = backend.decomposition.qrOrthogonalize(backend.array.hstack([backend.array.real(vData), backend.array.imag(vData)]) if backend.array.iscomplexobj(vData) else vData, backend)
         else:
             zAll = backend.array.hstack(zColumns)
             numCols = min(nc * vData.shape[1], zAll.shape[1])
-            if numCols == 0:
-                return prevShifts
-            z = zAll[:, -numCols:]
-            q = backend.decomposition.qrOrthogonalize(z, backend)
-        aProj = backend.linalg.dot(q.T, A.apply(q))
-        eProj = backend.linalg.dot(q.T, E.apply(q)) if E is not None else backend.array.eye(q.shape[1], dtype=A.dtype)
+            if numCols == 0: return prevShifts
+            q = backend.decomposition.qrOrthogonalize(zAll[:, -numCols:], backend)
+        aProj, eProj = backend.linalg.dot(q.T, A.apply(q)), backend.linalg.dot(q.T, E.apply(q)) if E is not None else backend.array.eye(q.shape[1], dtype=A.dtype)
         shifts = self.filterStableShifts(backend.eigen.eigvalsGeneralized(aProj, eProj), selectPositiveImag=True)
-        if backend.array.size(shifts) == 0:
-            return prevShifts
+        if backend.array.size(shifts) == 0: return prevShifts
         re = backend.array.abs(backend.array.real(shifts))
         mask = (re > 1e-14) & (backend.array.abs(backend.array.imag(shifts)) < 1e-12 * re)
         shifts = backend.array.copy(shifts)
         shiftsImag = backend.array.imag(shifts)
         shiftsImag[mask] = 0
-        absSh = backend.array.abs(shifts)
-        return shifts[backend.array.argsort(absSh)]
+        return shifts[backend.array.argsort(backend.array.abs(shifts))]

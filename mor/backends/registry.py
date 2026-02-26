@@ -30,7 +30,7 @@ class backendRegistry:
         cls._default = name
 
     @classmethod
-    def getDefault(cls) -> Optional[str]:
+    def getDefaultBackendName(cls) -> Optional[str]:
         return cls._default
 
     @classmethod

@@ -1,4 +1,2 @@
-from .svd import svdBase
+from .svd import svdAlgorithm
 from .staticSVD import staticSVD
-
-__all__ = ['svdBase', 'staticSVD']

@@ -18,15 +18,33 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def norm(x, ord=None):
-            if issparse(x):
-                return spnorm(x, ord=ord)
-            return linalg.norm(x, ord=ord)
+            return spnorm(x, ord=ord) if issparse(x) else linalg.norm(x, ord=ord)
 
         @staticmethod
         def dot(a, b):
-            if issparse(a):
-                return a @ b
-            return np.dot(a, b)
+            return a @ b if issparse(a) else np.dot(a, b)
+
+        @staticmethod
+        def det(a):
+            return linalg.det(a)
+
+        @staticmethod
+        def slogdet(a):
+            return np.linalg.slogdet(a)
+
+        @staticmethod
+        def robustSqrtFactor(A, tol=None, name="Matrix"):
+            import warnings
+            if A.shape[0] != A.shape[1]: return A
+            A = (A + A.T) / 2
+            eigvals, eigvecs = np.linalg.eigh(A)
+            maxEig = np.max(eigvals)
+            if tol is None: tol = max(maxEig, 1.0) * 1e-12
+            mask = eigvals > tol
+            numTotal, numKeep = len(eigvals), np.sum(mask)
+            if numTotal - numKeep > 0:
+                warnings.warn(f"[{name}] {numTotal - numKeep}/{numTotal} eigenvalues were truncated (below tol={tol:.2e}). This may indicate a stiff or singular system.", RuntimeWarning)
+            return eigvecs[:, mask] * np.sqrt(eigvals[mask])[np.newaxis, :]
 
     class decomposition(backendBase.decomposition):
         @staticmethod
@@ -45,9 +63,7 @@ class scipyBackend(backendBase):
                 from scipy.sparse.linalg import qr as sparse_qr
                 Q, _ = sparse_qr(B)
                 return Q.toarray() if issparse(Q) else Q
-            if B.shape[1] == 1:
-                return B / linalg.norm(B)
-            return linalg.qr(B, mode='economic')[0]
+            return B / linalg.norm(B) if B.shape[1] == 1 else linalg.qr(B, mode='economic')[0]
 
     class eigen(backendBase.eigen):
         @staticmethod
@@ -111,15 +127,11 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def solveContinuousGeneralized(a, e, q):
-            a_tilde = linalg.solve(e, a)
-            q_tilde = linalg.solve(e, linalg.solve(e, q.T).T)
-            return linalg.solve_continuous_lyapunov(a_tilde, q_tilde)
+            return linalg.solve_generalized_continuous_lyapunov(a, e, q)
 
         @staticmethod
         def solveDiscreteGeneralized(a, e, q):
-            a_tilde = linalg.solve(e, a)
-            q_tilde = linalg.solve(e, linalg.solve(e, q.T).T)
-            return linalg.solve_discrete_lyapunov(a_tilde, q_tilde)
+            return linalg.solve_generalized_discrete_lyapunov(a, e, q)
 
     @property
     def name(self):

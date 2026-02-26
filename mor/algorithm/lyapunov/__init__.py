@@ -1,19 +1,21 @@
-from .lradi import (
-    solveLyapunovLr,
-    solveLyapunovLrGeneralized,
-    shiftComputationOptions,
+from .lradi import lradiAlgorithm, shiftComputationOptions
+from .lrsmith import lrsmithAlgorithm, smithOptions
+from .hr import (
+    continuousHrAlgorithm,
+    continuousHrGeneralizedAlgorithm,
+    discreteHrAlgorithm,
+    discreteHrGeneralizedAlgorithm
 )
-from .lrsmith import (
-    solveLyapunovLrDiscrete,
-    solveLyapunovLrDiscreteGeneralized,
-    smithOptions,
-)
+from .sign import signAlgorithm
 
 __all__ = [
-    'solveLyapunovLr',
-    'solveLyapunovLrGeneralized',
-    'solveLyapunovLrDiscrete',
-    'solveLyapunovLrDiscreteGeneralized',
+    'lradiAlgorithm',
     'shiftComputationOptions',
+    'lrsmithAlgorithm',
     'smithOptions',
+    'continuousHrAlgorithm',
+    'continuousHrGeneralizedAlgorithm',
+    'discreteHrAlgorithm',
+    'discreteHrGeneralizedAlgorithm',
+    'signAlgorithm'
 ]

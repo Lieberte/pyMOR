@@ -18,10 +18,20 @@ class backendBase(ABC):
         @abstractmethod
         def norm(x: Any, ord: Any = None) -> float:
             pass
-
+        
         @staticmethod
         @abstractmethod
         def dot(a: Any, b: Any) -> Any:
+            pass
+
+        @staticmethod
+        @abstractmethod
+        def det(a: Any) -> float:
+            pass
+
+        @staticmethod
+        @abstractmethod
+        def slogdet(a: Any) -> Tuple[float, float]:
             pass
 
         @staticmethod
@@ -31,6 +41,10 @@ class backendBase(ABC):
         @staticmethod
         def conj(a: Any) -> Any:
             return getattr(a, 'conj', lambda: a)()
+
+        @staticmethod
+        def robustSqrtFactor(A: Any, tol: float | None = None, name: str = "Matrix") -> Any:
+            pass
 
     class decomposition:
         @staticmethod
@@ -111,11 +125,11 @@ class backendBase(ABC):
 
         @staticmethod
         def abs(data: Any) -> Any:
-            return np.abs(data) # Default fallback
+            return np.abs(data) 
 
         @staticmethod
         def sqrt(data: Any) -> Any:
-            return np.sqrt(data) # Default fallback
+            return np.sqrt(data) 
 
         @staticmethod
         def sum(data: Any, axis: int | None = None) -> Any:
@@ -127,7 +141,7 @@ class backendBase(ABC):
 
         @staticmethod
         def isfinite(data: Any) -> Any:
-            return np.isfinite(data) # Default fallback
+            return np.isfinite(data) 
 
         @staticmethod
         def iscomplexobj(data: Any) -> bool:
