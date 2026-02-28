@@ -1,5 +1,4 @@
-import numpy as np
-from dataclasses import dataclass
+import dataclasses
 from typing import Optional, Any
 
 from mor.algorithm import algorithmRegistry
@@ -8,7 +7,7 @@ from mor.operators import matrixOperator
 from mor.solvers import solverRegistry
 
 
-@dataclass
+@dataclasses.dataclass
 class reducedSystem:
     isContinuous: bool
     Ar: matrixOperator
@@ -44,8 +43,8 @@ class balancedTruncationReductor:
         if aNorm > 1e6:
             scalingFactor = float(aNorm)
             AScaled = matrixOperator(ARegData / scalingFactor, backendName=backend.name)
-            BScaled = matrixOperator(B.data / np.sqrt(scalingFactor), backendName=backend.name)
-            CScaled = matrixOperator(C.data / np.sqrt(scalingFactor), backendName=backend.name)
+            BScaled = matrixOperator(B.data / backend.array.sqrt(scalingFactor), backendName=backend.name)
+            CScaled = matrixOperator(C.data / backend.array.sqrt(scalingFactor), backendName=backend.name)
             EScaled = matrixOperator(E.data, backendName=backend.name) if E is not None else None
         else: AScaled, BScaled, CScaled, EScaled = matrixOperator(ARegData, backendName=backend.name), B, C, E
         ZcRaw, ZoRaw, eEff = self.lyapunovSolver.solveControllabilityAndObservability(AScaled, EScaled, BScaled, CScaled)
@@ -63,7 +62,7 @@ class balancedTruncationReductor:
             else: raise ValueError("Maximum error threshold not met")
         order = min(order, len(hsv)) if order is not None else len(hsv)
         if order == 0: raise ValueError("All Hankel Singular Values were truncated. System might be unstable or too stiff.")
-        srInv = backend.array.array(np.diag(1.0 / backend.array.sqrt(S[:order])))
+        srInv = backend.array.diag(1.0 / backend.array.sqrt(S[:order]))
         vProj = backend.linalg.dot(Zc, backend.linalg.dot(Vt[:order].T, srInv))
         wProj = backend.linalg.dot(Zo, backend.linalg.dot(U[:, :order], srInv))
         bData, cData = B.data, C.data

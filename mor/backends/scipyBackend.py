@@ -84,6 +84,10 @@ class scipyBackend(backendBase):
             return np.eye(n, dtype=dtype)
 
         @staticmethod
+        def eyeLike(a):
+            return np.eye(a.shape[0], dtype=a.dtype)
+
+        @staticmethod
         def hstack(arrays):
             return np.hstack(arrays)
 
@@ -94,6 +98,14 @@ class scipyBackend(backendBase):
         @staticmethod
         def toArray(data):
             return np.asarray(data)
+
+        @staticmethod
+        def diag(v, k=0):
+            return np.diag(v, k=k)
+
+        @staticmethod
+        def trace(a):
+            return np.trace(a)
 
         @staticmethod
         def abs(data):
@@ -110,6 +122,10 @@ class scipyBackend(backendBase):
         @staticmethod
         def array(data, dtype=None):
             return np.array(data, dtype=dtype)
+
+        @staticmethod
+        def isSparse(data):
+            return issparse(data)
 
     class specialized(backendBase.specialized):
         @staticmethod

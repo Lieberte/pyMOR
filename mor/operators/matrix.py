@@ -8,9 +8,7 @@ class matrixOperator(operatorBase):
         self._isSparse = self._detectSparsity()
 
     def _detectSparsity(self) -> bool:
-        # TODO: implement more robust sparsity detection across backends
-        import scipy.sparse as sp
-        return sp.issparse(self.data)
+        return self.localBackend.array.isSparse(self.data)
 
     @property
     def shape(self) -> Tuple[int, ...]:

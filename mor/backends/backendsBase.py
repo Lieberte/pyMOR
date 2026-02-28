@@ -85,6 +85,10 @@ class backendBase(ABC):
             pass
 
         @staticmethod
+        def eyeLike(a: Any) -> Any:
+            pass
+
+        @staticmethod
         @abstractmethod
         def hstack(arrays: list[Any]) -> Any:
             pass
@@ -97,6 +101,14 @@ class backendBase(ABC):
         @staticmethod
         @abstractmethod
         def toArray(data: Any) -> Any:
+            pass
+
+        @staticmethod
+        def diag(v: Any, k: int = 0) -> Any:
+            pass
+
+        @staticmethod
+        def trace(a: Any) -> Any:
             pass
 
         @staticmethod
@@ -158,6 +170,11 @@ class backendBase(ABC):
         @staticmethod
         def copy(data: Any) -> Any:
             return getattr(data, 'copy')()
+
+        @staticmethod
+        @abstractmethod
+        def isSparse(data: Any) -> bool:
+            pass
 
     class specialized:
         @staticmethod
