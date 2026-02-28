@@ -4,4 +4,6 @@
 /.cursor/
 /applicationTests/
 /.idea/
-/.gitignore
+.gitignore
+/refer/
+/performanceTests/
