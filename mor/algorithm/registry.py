@@ -16,9 +16,12 @@ class algorithmRegistry:
     def resolveBackend(cls, category: str, backendName: str | None) -> str:
         if backendName and backendName != 'auto': return backendName
         if category in cls._defaultBackends: return cls._defaultBackends[category]
+        # Check if the current backend is already set in registry
+        defaultName = backendRegistry.getDefaultBackendName()
+        if defaultName: return defaultName
         methodName = f"getPreferredFor{category.capitalize()}"
         if hasattr(backendRegistry, methodName): return getattr(backendRegistry, methodName)()
-        return backendRegistry.getDefaultBackendName()
+        return 'scipy'
 
     @classmethod
     def get(cls, category: str, variant: str | None = None, forceOptions: dict | None = None, backendName: str | None = None, **kwargs) -> Any:

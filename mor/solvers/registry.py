@@ -16,9 +16,12 @@ class solverRegistry:
     def resolveBackend(cls, solverType: str, backendName: str | None) -> str:
         if backendName and backendName != 'auto': return backendName
         if solverType in cls._defaultBackends: return cls._defaultBackends[solverType]
+        # Check if the current backend is already set in registry
+        defaultName = backendRegistry.getDefaultBackendName()
+        if defaultName: return defaultName
         methodName = f"getPreferredFor{solverType.capitalize()}"
         if hasattr(backendRegistry, methodName): return getattr(backendRegistry, methodName)()
-        return backendRegistry.getDefaultBackendName()
+        return 'scipy'
 
     @classmethod
     def get(cls, solverType: str, name: str | None = None, forceOptions: dict | None = None, backendName: str | None = None, **kwargs) -> Any:

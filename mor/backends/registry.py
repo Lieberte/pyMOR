@@ -35,11 +35,9 @@ class backendRegistry:
 
     @classmethod
     def getPreferredForLyapunov(cls) -> str:
+        # Just return default or highest priority, as all backends now support Lyapunov via Algorithm layer
         names = sorted(cls.list(), key=lambda n: -cls._priority.get(n, 0))
-        for name in names:
-            if cls.get(name).supportsLyapunov:
-                return name
-        return cls._default or names[0]
+        return cls._default or (names[0] if names else None)
 
 def registerBackend(name: str, priority: int = 0):
     def decorator(backendClass):

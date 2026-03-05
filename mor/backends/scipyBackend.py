@@ -13,8 +13,16 @@ class scipyBackend(backendBase):
             return linalg.solve(A, b)
 
         @staticmethod
+        def solveTriangular(A, b, lower=False):
+            return linalg.solve_triangular(A, b, lower=lower)
+
+        @staticmethod
         def qr(A, mode='reduced'):
             return linalg.qr(A, mode='economic' if mode == 'reduced' else mode)
+
+        @staticmethod
+        def schur(A, output='real'):
+            return linalg.schur(A, output=output)
 
         @staticmethod
         def norm(x, ord=None):
@@ -31,6 +39,14 @@ class scipyBackend(backendBase):
         @staticmethod
         def slogdet(a):
             return np.linalg.slogdet(a)
+
+        @staticmethod
+        def solveContinuousLyapunov(A, Q):
+            return linalg.solve_continuous_lyapunov(A, Q)
+
+        @staticmethod
+        def solveGeneralizedContinuousLyapunov(A, E, Q):
+            return linalg.solve_generalized_continuous_lyapunov(A, E, Q)
 
         @staticmethod
         def robustSqrtFactor(A, tol=None, name="Matrix"):
@@ -132,23 +148,6 @@ class scipyBackend(backendBase):
         def gramMatrixNorm(w, backend):
             return backend.linalg.norm(backend.linalg.dot(w.T, w), ord=2)
 
-    class lyapunov(backendBase.lyapunov):
-        @staticmethod
-        def solveContinuous(a, q):
-            return linalg.solve_continuous_lyapunov(a, q)
-
-        @staticmethod
-        def solveDiscrete(a, q):
-            return linalg.solve_discrete_lyapunov(a, q)
-
-        @staticmethod
-        def solveContinuousGeneralized(a, e, q):
-            return linalg.solve_generalized_continuous_lyapunov(a, e, q)
-
-        @staticmethod
-        def solveDiscreteGeneralized(a, e, q):
-            return linalg.solve_generalized_discrete_lyapunov(a, e, q)
-
     @property
     def name(self):
         return 'scipy'
@@ -156,7 +155,3 @@ class scipyBackend(backendBase):
     @property
     def arrayType(self):
         return np.ndarray
-
-    @property
-    def supportsLyapunov(self):
-        return True

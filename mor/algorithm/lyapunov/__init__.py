@@ -1,11 +1,7 @@
 from .lradi import lradiAlgorithm, shiftComputationOptions
 from .lrsmith import lrsmithAlgorithm, smithOptions
-from .hr import (
-    continuousHrAlgorithm,
-    continuousHrGeneralizedAlgorithm,
-    discreteHrAlgorithm,
-    discreteHrGeneralizedAlgorithm
-)
+from .base import backendLyapunovAlgorithm
+from .bartelsStewart import bartelsStewartAlgorithm
 from .sign import signAlgorithm
 
 __all__ = [
@@ -13,9 +9,7 @@ __all__ = [
     'shiftComputationOptions',
     'lrsmithAlgorithm',
     'smithOptions',
-    'continuousHrAlgorithm',
-    'continuousHrGeneralizedAlgorithm',
-    'discreteHrAlgorithm',
-    'discreteHrGeneralizedAlgorithm',
+    'bartelsStewartAlgorithm',
+    'backendLyapunovAlgorithm',
     'signAlgorithm'
 ]

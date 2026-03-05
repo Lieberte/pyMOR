@@ -11,7 +11,17 @@ class backendBase(ABC):
 
         @staticmethod
         @abstractmethod
+        def solveTriangular(A: Any, b: Any, lower: bool = False) -> Any:
+            pass
+
+        @staticmethod
+        @abstractmethod
         def qr(A: Any, mode: str = 'reduced') -> Tuple[Any, Any]:
+            pass
+
+        @staticmethod
+        @abstractmethod
+        def schur(A: Any, output: str = 'real') -> Tuple[Any, Any]:
             pass
 
         @staticmethod
@@ -32,6 +42,16 @@ class backendBase(ABC):
         @staticmethod
         @abstractmethod
         def slogdet(a: Any) -> Tuple[float, float]:
+            pass
+
+        @staticmethod
+        @abstractmethod
+        def solveContinuousLyapunov(A: Any, Q: Any) -> Any:
+            pass
+
+        @staticmethod
+        @abstractmethod
+        def solveGeneralizedContinuousLyapunov(A: Any, E: Any, Q: Any) -> Any:
             pass
 
         @staticmethod
@@ -181,23 +201,6 @@ class backendBase(ABC):
         def gramMatrixNorm(w: Any, backend: 'backendBase') -> float:
             return backend.linalg.norm(backend.linalg.dot(w.T, w), ord=2)
 
-    class lyapunov:
-        @staticmethod
-        def solveContinuous(a: Any, q: Any) -> Any:
-            pass
-
-        @staticmethod
-        def solveDiscrete(a: Any, q: Any) -> Any:
-            pass
-
-        @staticmethod
-        def solveContinuousGeneralized(a: Any, e: Any, q: Any) -> Any:
-            pass
-
-        @staticmethod
-        def solveDiscreteGeneralized(a: Any, e: Any, q: Any) -> Any:
-            pass
-
     @property
     @abstractmethod
     def name(self) -> str:
@@ -207,10 +210,6 @@ class backendBase(ABC):
     @abstractmethod
     def arrayType(self) -> type:
         pass
-
-    @property
-    def supportsLyapunov(self) -> bool:
-        return False
 
     @classmethod
     def isAvailable(cls) -> bool:

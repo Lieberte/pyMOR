@@ -4,7 +4,9 @@ from .operatorsBase import operatorBase
 class matrixOperator(operatorBase):
     def __init__(self, data: Any, backendName: str | None = None):
         super().__init__(backendName)
-        self.data = data
+        # Ensure data is converted to the correct backend format
+        # If backendName is None, it uses the default backend
+        self.data = self.localBackend.array.toArray(data)
         self._isSparse = self._detectSparsity()
 
     def _detectSparsity(self) -> bool:
@@ -25,12 +27,13 @@ class matrixOperator(operatorBase):
     @property
     def T(self) -> 'matrixOperator':
         backend = self.localBackend
-        return matrixOperator(backend.linalg.transpose(self.data), backendName=self.backendName)
+        return matrixOperator(backend.linalg.transpose(self.data), backendName=self.localBackend.name)
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        data = self.data.T if trans else self.data
-        return backend.linalg.dot(data, x)
+        xData = backend.array.toArray(x)
+        data = backend.linalg.transpose(self.data) if trans else self.data
+        return backend.linalg.dot(data, xData)
 
     def toNumpy(self) -> Any:
         backend = self.localBackend
