@@ -42,5 +42,8 @@ class sumOperator(operatorBase):
             res = res + op.toNumpy()
         return res
 
+    def __mul__(self, scalar: float) -> 'sumOperator':
+        return sumOperator([op * scalar for op in self.operators], backendName=self.backendName)
+
     def __repr__(self) -> str:
         return f"sumOperator(count={len(self.operators)}, shape={self.shape}, backend={self.backendName})"

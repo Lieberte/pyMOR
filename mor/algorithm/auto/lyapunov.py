@@ -1,4 +1,7 @@
 def selectLyapunovAlgorithm(**kwargs) -> str:
+    variant = kwargs.get('variant', 'auto')
+    if variant != 'auto': return variant
+    
     A = kwargs.get('A')
     E = kwargs.get('E')
     backendName = kwargs.get('backendName', 'scipy')

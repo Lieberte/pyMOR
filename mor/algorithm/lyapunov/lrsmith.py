@@ -10,7 +10,7 @@ class smithOptions:
     maxIter, tol, maxRank = 200, 1e-10, None
 
 @registerAlgorithm('lyapunov', 'lrsmith')
-class lrsmithAlgorithm:
+class lrsmith:
     def __init__(self, backendName: str | None = None, **kwargs):
         self.localBackend, self.options = backendRegistry.get(backendName), kwargs
 

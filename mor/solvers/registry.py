@@ -29,6 +29,7 @@ class solverRegistry:
         if forceOptions:
             kwargs.update(forceOptions)
             if 'name' in forceOptions: name = forceOptions['name']
+            if 'variant' in forceOptions and name is None: name = forceOptions['variant']
         if name is None or name == 'auto': name = selectSolver(solverType, backendName=backend, **kwargs)
         if solverType not in cls._solvers or name not in cls._solvers[solverType]: raise ValueError(f"Solver '{name}' not registered in {solverType} registry.")
         return cls._solvers[solverType][name](backendName=backend, **kwargs)

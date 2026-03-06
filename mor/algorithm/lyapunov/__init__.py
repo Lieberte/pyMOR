@@ -1,15 +1,15 @@
-from .lradi import lradiAlgorithm, shiftComputationOptions
-from .lrsmith import lrsmithAlgorithm, smithOptions
-from .base import backendLyapunovAlgorithm
-from .bartelsStewart import bartelsStewartAlgorithm
-from .sign import signAlgorithm
+from .lradi import lradi, shiftComputationOptions
+from .lrsmith import lrsmith, smithOptions
+from .base import backendLyapunov
+from .bartelsStewart import bartelsStewart
+from .sign import sign
 
 __all__ = [
-    'lradiAlgorithm',
+    'lradi',
     'shiftComputationOptions',
-    'lrsmithAlgorithm',
+    'lrsmith',
     'smithOptions',
-    'bartelsStewartAlgorithm',
-    'backendLyapunovAlgorithm',
-    'signAlgorithm'
+    'bartelsStewart',
+    'backendLyapunov',
+    'sign'
 ]

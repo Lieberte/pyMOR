@@ -63,7 +63,8 @@ class backendBase(ABC):
             return getattr(a, 'conj', lambda: a)()
 
         @staticmethod
-        def robustSqrtFactor(A: Any, tol: float | None = None, name: str = "Matrix") -> Any:
+        @abstractmethod
+        def balance(A: Any) -> Any:
             pass
 
     class decomposition:
@@ -93,6 +94,11 @@ class backendBase(ABC):
         def eigvals(A: Any) -> Any:
             pass
 
+        @staticmethod
+        @abstractmethod
+        def eigh(A: Any) -> Tuple[Any, Any]:
+            pass
+
     class array:
         @staticmethod
         @abstractmethod
@@ -102,6 +108,11 @@ class backendBase(ABC):
         @staticmethod
         @abstractmethod
         def eye(n: int, dtype: Any = None) -> Any:
+            pass
+
+        @staticmethod
+        @abstractmethod
+        def eyeSparse(n: int, dtype: Any = None) -> Any:
             pass
 
         @staticmethod
@@ -161,7 +172,11 @@ class backendBase(ABC):
 
         @staticmethod
         def sqrt(data: Any) -> Any:
-            return np.sqrt(data) 
+            return np.sqrt(data)
+
+        @staticmethod
+        def exp(data: Any) -> Any:
+            return np.exp(data)
 
         @staticmethod
         def sum(data: Any, axis: int | None = None) -> Any:
@@ -188,8 +203,20 @@ class backendBase(ABC):
             return np.array(data, dtype=dtype)
 
         @staticmethod
+        def randn(shape: Tuple[int, ...], dtype: Any = None) -> Any:
+            return np.random.randn(*shape).astype(dtype) if dtype else np.random.randn(*shape)
+
+        @staticmethod
         def copy(data: Any) -> Any:
             return getattr(data, 'copy')()
+
+        @staticmethod
+        def any(data: Any) -> bool:
+            return np.any(data)
+
+        @staticmethod
+        def size(data: Any) -> int:
+            return np.size(data)
 
         @staticmethod
         @abstractmethod

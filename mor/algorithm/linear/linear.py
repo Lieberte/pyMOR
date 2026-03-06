@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 from mor.backends import backendRegistry
 
-class linearAlgorithm(ABC):
+class linear(ABC):
     def __init__(self, backendName: str | None = None, **kwargs):
         self.localBackend = backendRegistry.get(backendName)
         self.options = kwargs

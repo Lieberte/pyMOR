@@ -18,7 +18,7 @@ class matrixOperator(operatorBase):
 
     @property
     def dtype(self) -> Any:
-        return self.data.dtype
+        return getattr(self.data, 'dtype', None)
 
     @property
     def isSparse(self) -> bool:
@@ -27,13 +27,16 @@ class matrixOperator(operatorBase):
     @property
     def T(self) -> 'matrixOperator':
         backend = self.localBackend
-        return matrixOperator(backend.linalg.transpose(self.data), backendName=self.localBackend.name)
+        return matrixOperator(backend.linalg.transpose(self.data), backendName=self.backendName)
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        xData = backend.array.toArray(x)
+        xData = x.data if isinstance(x, matrixOperator) else backend.array.toArray(x)
         data = backend.linalg.transpose(self.data) if trans else self.data
         return backend.linalg.dot(data, xData)
+
+    def __mul__(self, scalar: float) -> 'matrixOperator':
+        return matrixOperator(self.data * scalar, backendName=self.backendName)
 
     def toNumpy(self) -> Any:
         backend = self.localBackend

@@ -28,5 +28,22 @@ class operatorBase(ABC):
         pass
 
     @property
+    @abstractmethod
+    def T(self) -> 'operatorBase':
+        pass
+
+    def __add__(self, other: Any) -> 'operatorBase':
+        from .sum import sumOperator
+        return sumOperator([self, other], backendName=self.backendName)
+
+    def __sub__(self, other: Any) -> 'operatorBase':
+        from .sum import sumOperator
+        return sumOperator([self, (other * -1.0)], backendName=self.backendName)
+
+    def __mul__(self, scalar: float) -> 'operatorBase':
+        # TODO: Implement scaledOperator for efficient scalar multiplication
+        return self
+
+    @property
     def backendName(self) -> str | None:
         return self._backendName

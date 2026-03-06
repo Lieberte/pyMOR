@@ -1,4 +1,4 @@
-from .linear import linearAlgorithm
-from .shifted import shiftedLinearAlgorithm
+from .linear import linear
+from .shifted import shiftedLinear
 
-__all__ = ['linearAlgorithm', 'shiftedLinearAlgorithm']
+__all__ = ['linear', 'shiftedLinear']

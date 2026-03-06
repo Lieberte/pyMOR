@@ -29,7 +29,13 @@ class algorithmRegistry:
         if forceOptions:
             kwargs.update(forceOptions)
             if 'variant' in forceOptions: variant = forceOptions['variant']
-        if variant is None or variant == 'auto': variant = selectAlgorithm(category, backendName=backend, **kwargs)
+        
+        # Priority check: if variant is specified and not 'auto', use it
+        if variant is not None and variant != 'auto':
+            pass
+        else:
+            variant = selectAlgorithm(category, backendName=backend, **kwargs)
+            
         if category not in cls._algorithms or variant not in cls._algorithms[category]: raise ValueError(f"Algorithm '{variant}' not registered in {category} registry.")
         return cls._algorithms[category][variant](backendName=backend, **kwargs)
 

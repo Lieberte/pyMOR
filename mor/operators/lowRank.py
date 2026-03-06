@@ -20,7 +20,7 @@ class lowRankOperator(operatorBase):
 
     @property
     def dtype(self) -> Any:
-        return self.left.dtype
+        return getattr(self.left, 'dtype', None)
 
     @property
     def isSparse(self) -> bool:
@@ -33,18 +33,18 @@ class lowRankOperator(operatorBase):
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
+        xData = x.data if isinstance(x, matrixOperator) else backend.array.toArray(x)
         if self.right is None:
-            # X = Z Z^T
-            # X v = Z (Z^T v)
-            tmp = backend.linalg.dot(backend.linalg.transpose(self.left), x)
+            tmp = backend.linalg.dot(backend.linalg.transpose(self.left), xData)
             return backend.linalg.dot(self.left, tmp)
         else:
-            # X = ZL ZR^T
-            # X v = ZL (ZR^T v)
-            # X^T v = ZR (ZL^T v)
             l, r = (self.right, self.left) if trans else (self.left, self.right)
-            tmp = backend.linalg.dot(backend.linalg.transpose(r), x)
+            tmp = backend.linalg.dot(backend.linalg.transpose(r), xData)
             return backend.linalg.dot(l, tmp)
+
+    def __mul__(self, scalar: float) -> 'lowRankOperator':
+        import numpy as np
+        return lowRankOperator(self.left * np.sqrt(scalar), self.right * np.sqrt(scalar) if self.right is not None else None, backendName=self.backendName)
 
     def toNumpy(self) -> Any:
         backend = self.localBackend
