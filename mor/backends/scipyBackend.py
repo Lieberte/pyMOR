@@ -148,6 +148,10 @@ class scipyBackend(backendBase):
             return np.hstack(arrays)
 
         @staticmethod
+        def vstack(arrays):
+            return np.vstack(arrays)
+
+        @staticmethod
         def toNumpy(data):
             return np.asarray(data)
 
@@ -180,8 +184,16 @@ class scipyBackend(backendBase):
             return np.isfinite(data)
 
         @staticmethod
+        def where(condition):
+            return np.where(condition)
+
+        @staticmethod
         def array(data, dtype=None):
             return np.array(data, dtype=dtype)
+
+        @staticmethod
+        def argsort(data):
+            return np.argsort(data)
 
         @staticmethod
         def randn(shape, dtype=None):

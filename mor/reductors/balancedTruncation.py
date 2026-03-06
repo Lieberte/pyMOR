@@ -57,20 +57,12 @@ class balancedTruncationReductor:
         M = backend.linalg.dot(backend.linalg.transpose(Zo_data), Zc_data)
         if hasattr(M, 'to') and hasattr(model.A.data, 'dtype'): M = M.to(model.A.data.dtype)
         M_op = matrixOperator(M, backendName=backend.name)
-        U, S, Vt = self.svdAlgorithm.decompose(M_op, fullMatrices=False)
-        hsv = S
-        # TODO: implement the truncation algorithm
-        if order is None and maxError is not None:
-            for r in range(len(hsv), 0, -1):
-                if 2 * backend.array.sum(hsv[r:]) <= maxError:
-                    order = r
-                    break
-            else: raise ValueError("Maximum error threshold not met")
-        order = min(order, len(hsv)) if order is not None else len(hsv)
+        U, S, Vt = self.svdAlgorithm.decompose(M_op, rank=order, tol=maxError)
+        hsv, order = S, backend.array.size(S)
         if order == 0: raise ValueError("All Hankel Singular Values were truncated.")
-        srInv = backend.array.diag(1.0 / backend.array.sqrt(S[:order]))
-        vProj = backend.linalg.dot(Zc, backend.linalg.dot(backend.linalg.transpose(Vt[:order]), srInv))
-        wProj = backend.linalg.dot(Zo, backend.linalg.dot(U[:, :order], srInv))
+        srInv = backend.array.diag(1.0 / backend.array.sqrt(S))
+        vProj = backend.linalg.dot(Zc, backend.linalg.dot(backend.linalg.transpose(Vt), srInv))
+        wProj = backend.linalg.dot(Zo, backend.linalg.dot(U, srInv))
         wProjT = backend.linalg.transpose(wProj)
         bData, cData = model.B.data, model.C.data
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))
@@ -89,7 +81,7 @@ class balancedTruncationReductor:
             Cr=matrixOperator(Cr, backendName=backend.name), 
             Dr=matrixOperator(Dr, backendName=backend.name), 
             Er=matrixOperator(Er, backendName=backend.name), 
-            hsv=backend.array.toNumpy(hsv[:order]).tolist(), 
+            hsv=backend.array.toNumpy(hsv).tolist(), 
             order=order,
             solverInfo={
                 'backend': backend.name,

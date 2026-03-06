@@ -120,8 +120,12 @@ class backendBase(ABC):
             pass
 
         @staticmethod
-        @abstractmethod
         def hstack(arrays: list[Any]) -> Any:
+            pass
+
+        @staticmethod
+        @abstractmethod
+        def vstack(arrays: list[Any]) -> Any:
             pass
 
         @staticmethod
@@ -183,12 +187,20 @@ class backendBase(ABC):
             return getattr(data, 'sum')(axis=axis)
 
         @staticmethod
+        def cumsum(data: Any, axis: int | None = None) -> Any:
+            return getattr(data, 'cumsum')(axis=axis)
+
+        @staticmethod
         def all(data: Any) -> bool:
             return bool(getattr(data, 'all')())
 
         @staticmethod
         def isfinite(data: Any) -> Any:
             return np.isfinite(data) 
+
+        @staticmethod
+        def where(condition: Any) -> Tuple[Any, ...]:
+            return np.where(condition)
 
         @staticmethod
         def iscomplexobj(data: Any) -> bool:

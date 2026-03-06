@@ -4,8 +4,7 @@ from .operatorsBase import operatorBase
 class matrixOperator(operatorBase):
     def __init__(self, data: Any, backendName: str | None = None):
         super().__init__(backendName)
-        # Ensure data is converted to the correct backend format
-        # If backendName is None, it uses the default backend
+        # TODO: check backend fmt first
         self.data = self.localBackend.array.toArray(data)
         self._isSparse = self._detectSparsity()
 

@@ -184,6 +184,10 @@ class torchBackend(backendBase):
             return torch.hstack(arrays)
 
         @staticmethod
+        def vstack(arrays):
+            return torch.vstack(arrays)
+
+        @staticmethod
         def toNumpy(data):
             return data.detach().cpu().numpy()
 
@@ -220,6 +224,11 @@ class torchBackend(backendBase):
         def isfinite(data):
             if not isinstance(data, torch.Tensor): return np.isfinite(data)
             return torch.isfinite(data)
+
+        @staticmethod
+        def where(condition):
+            if not isinstance(condition, torch.Tensor): return np.where(condition)
+            return torch.where(condition)
 
         @staticmethod
         def array(data, dtype=None):
@@ -259,6 +268,10 @@ class torchBackend(backendBase):
         @staticmethod
         def ndim(data):
             return data.ndim
+
+        @staticmethod
+        def argsort(data):
+            return torch.argsort(data)
 
         @staticmethod
         def reshape(data, shape):
