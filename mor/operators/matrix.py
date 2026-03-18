@@ -30,9 +30,12 @@ class matrixOperator(operatorBase):
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        xData = x.data if isinstance(x, matrixOperator) else backend.array.toArray(x)
+        xData = x.toBackendData() if isinstance(x, operatorBase) else backend.array.toArray(x)
         data = backend.linalg.transpose(self.data) if trans else self.data
         return backend.linalg.dot(data, xData)
+
+    def toBackendData(self) -> Any:
+        return self.data
 
     def __mul__(self, scalar: float) -> 'matrixOperator':
         return matrixOperator(self.data * scalar, backendName=self.backendName)

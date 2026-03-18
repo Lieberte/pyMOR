@@ -3,10 +3,12 @@ from .svd import svd
 from mor.algorithm.registry import registerAlgorithm
 from ..truncation.truncation import truncate
 
+from mor.operators.operatorsBase import operatorBase
+
 @registerAlgorithm('svd', 'qrSVD')
 class qrSVD(svd):
-    def decompose(self, xOperator: Any, rank: int | None = None, tol: float | None = None, fullMatrices: bool = False) -> tuple[Any, Any, Any]:
-        backend, S = self.localBackend, xOperator.data
+    def decompose(self, xOperator: operatorBase, rank: int | None = None, tol: float | None = None, fullMatrices: bool = False) -> tuple[Any, Any, Any]:
+        backend, S = self.localBackend, xOperator.toBackendData()
         Q, R = backend.linalg.qr(S, mode='reduced')
         uHat, s, Vh = backend.decomposition.svdDense(R, fullMatrices=fullMatrices)
         U = backend.linalg.dot(Q, uHat)

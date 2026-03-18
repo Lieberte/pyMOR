@@ -3,10 +3,12 @@ from .svd import svd
 from mor.algorithm.registry import registerAlgorithm
 from ..truncation.truncation import truncate
 
+from mor.operators.operatorsBase import operatorBase
+
 @registerAlgorithm('svd', 'randomized')
 class randomizedSVD(svd):
-    def decompose(self, xOperator: Any, rank: int, tol: float | None = None, oversampling: int = 10, iterations: int = 2) -> tuple[Any, Any, Any]:
-        backend, S = self.localBackend, xOperator.data
+    def decompose(self, xOperator: operatorBase, rank: int, tol: float | None = None, oversampling: int = 10, iterations: int = 2) -> tuple[Any, Any, Any]:
+        backend, S = self.localBackend, xOperator.toBackendData()
         n, k = S.shape
         l = rank + oversampling
         Omega = backend.array.randn((k, l), dtype=S.dtype)

@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from mor.backends import backendRegistry
-from mor.operators import matrixOperator
+from mor.operators.operatorsBase import operatorBase
 from mor.algorithm.registry import registerAlgorithm, algorithmRegistry
 from .base import backendLyapunov
 
@@ -16,8 +16,8 @@ class lradi(backendLyapunov):
     def __init__(self, backendName: str | None = None, **kwargs):
         self.localBackend, self.options = backendRegistry.get(backendName), kwargs
 
-    def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False) -> Any:
-        backend, n, bData = self.localBackend, A.shape[0], B.data
+    def solve(self, A: operatorBase, E: operatorBase | None, B: operatorBase, trans: bool = False) -> Any:
+        backend, n, bData = self.localBackend, A.shape[0], B.toBackendData()
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))    
         tol, maxIter, shiftOpts = self.options.get('tol', 1e-10), self.options.get('maxIter', 500), self.options.get('shiftOptions')
         if not isinstance(shiftOpts, shiftComputationOptions): shiftOpts = shiftComputationOptions(**(shiftOpts if isinstance(shiftOpts, dict) else {}))
@@ -53,7 +53,7 @@ class lradi(backendLyapunov):
         from mor.operators.lowRank import lowRankOperator
         return lowRankOperator(backend.array.hstack(zColumns) if zColumns else backend.array.zeros((n, 0), dtype=A.dtype), backendName=backend.name)
 
-    def computeInitialShifts(self, A: matrixOperator, E: matrixOperator | None, bData: Any, options: shiftComputationOptions) -> Any:
+    def computeInitialShifts(self, A: operatorBase, E: operatorBase | None, bData: Any, options: shiftComputationOptions) -> Any:
         backend = self.localBackend
         def projectAndGetShifts(B: Any) -> Any:
             Q = backend.decomposition.qrOrthogonalize(B, backend)
@@ -81,16 +81,16 @@ class lradi(backendLyapunov):
         if selectPositiveImag: mask &= (backend.array.imag(shifts) >= 0)
         return shifts[mask]
 
-    def computeHeuristicShifts(self, A: matrixOperator, E: matrixOperator | None) -> Any:
+    def computeHeuristicShifts(self, A: operatorBase, E: operatorBase | None) -> Any:
         backend, n = self.localBackend, A.shape[0]
         if n <= 256:
             try:
-                sh = self.filterStableShifts(backend.eigen.eigvalsGeneralized(A.data, E.data if E is not None else backend.array.eye(n, dtype=A.dtype)))
+                sh = self.filterStableShifts(backend.eigen.eigvalsGeneralized(A.toBackendData(), E.toBackendData() if E is not None else backend.array.eye(n, dtype=A.dtype)))
                 if backend.array.size(sh) > 0: return sh[backend.array.argsort(backend.array.abs(sh))][:20]
             except Exception: pass
         return backend.array.array([-1e-3, -1e-2, -1e-1, -1.0, -10.0], dtype=A.dtype)
 
-    def updateShifts(self, A: matrixOperator, E: matrixOperator | None, vData: Any, zColumns: list[Any], prevShifts: Any, options: shiftComputationOptions, trans: bool = False) -> Any:
+    def updateShifts(self, A: operatorBase, E: operatorBase | None, vData: Any, zColumns: list[Any], prevShifts: Any, options: shiftComputationOptions, trans: bool = False) -> Any:
         backend, nc = self.localBackend, options.subspaceColumns
         if nc == 1: Q = backend.decomposition.qrOrthogonalize(backend.array.hstack([backend.array.real(vData), backend.array.imag(vData)]) if backend.array.iscomplexobj(vData) else vData, backend)
         else:

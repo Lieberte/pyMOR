@@ -32,6 +32,10 @@ class operatorBase(ABC):
     def T(self) -> 'operatorBase':
         pass
 
+    @abstractmethod
+    def toBackendData(self) -> Any:
+        pass
+
     def __add__(self, other: Any) -> 'operatorBase':
         from .sum import sumOperator
         return sumOperator([self, other], backendName=self.backendName)

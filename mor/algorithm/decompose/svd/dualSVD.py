@@ -3,10 +3,12 @@ from .svd import svd
 from mor.algorithm.registry import registerAlgorithm
 from ..truncation.truncation import truncate
 
+from mor.operators.operatorsBase import operatorBase
+
 @registerAlgorithm('svd', 'dual')
 class dualSVD(svd):
-    def decompose(self, xOperator: Any, rank: int | None = None, tol: float | None = None, product: Any | None = None) -> tuple[Any, Any, Any]:
-        backend, S = self.localBackend, xOperator.data
+    def decompose(self, xOperator: operatorBase, rank: int | None = None, tol: float | None = None, product: Any | None = None) -> tuple[Any, Any, Any]:
+        backend, S = self.localBackend, xOperator.toBackendData()
         if product is not None:
             K = backend.linalg.dot(backend.linalg.transpose(backend.linalg.conj(S)), product.apply(S))
         else:

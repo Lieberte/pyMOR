@@ -1,5 +1,4 @@
 from typing import Dict, Callable
-
 from mor.algorithm.auto.svd import selectSVDVariant
 from mor.algorithm.auto.lyapunov import selectLyapunovAlgorithm
 from mor.algorithm.auto.linear import selectLinearAlgorithm
