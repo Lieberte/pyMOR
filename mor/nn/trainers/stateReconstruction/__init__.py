@@ -1,1 +1,3 @@
-__all__ = []
+from .autoEncoderTrainerTorch import autoEncoderTrainerTorch
+
+__all__ = ['autoEncoderTrainerTorch']

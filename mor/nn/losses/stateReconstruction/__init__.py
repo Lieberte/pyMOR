@@ -1,1 +1,3 @@
-__all__ = []
+from .mseReconstructionLoss import mseReconstructionLoss
+
+__all__ = ['mseReconstructionLoss']
