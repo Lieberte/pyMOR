@@ -7,3 +7,5 @@ class dataLoaderConfig:
     shuffle: bool = True
     numWorkers: int = 0
     pinMemory: bool = False
+    dropLast: bool = False
+    persistentWorkers: bool = False

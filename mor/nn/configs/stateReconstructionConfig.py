@@ -3,7 +3,11 @@ from .base import baseConfig
 
 @dataclass
 class stateReconstructionConfig(baseConfig):
+    modelName: str = 'autoEncoderTorch'
+    trainerName: str = 'autoEncoderTrainerTorch'
+    lossFunction: str = 'mseReconstructionLoss'
+    validationName: str = 'reconstructionMetrics'
+    dataModuleName: str = 'snapshotDataModule'
     inputDim: int = 0
     latentDim: int = 0
     hiddenDims: list[int] = field(default_factory=list)
-    lossFunction: str = 'mse'
