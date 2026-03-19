@@ -10,4 +10,4 @@ class mseReconstructionLoss(baseLoss):
     def compute(self, predictions: Any, targets: Any) -> Any:
         return functional.mse_loss(predictions, targets)
 
-nnRegistry.register('losses.stateReconstruction', 'mseReconstructionLoss', mseReconstructionLoss)
+nnRegistry.register('losses.representationLearning', 'mseReconstructionLoss', mseReconstructionLoss)

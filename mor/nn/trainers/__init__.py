@@ -1,7 +1,7 @@
 from .baseTrainer import baseTrainer
-from . import stateReconstruction
+from . import representationLearning
 from . import dynamicsLearning
 from . import operatorLearning
-from . import surrogateModeling
+from . import generativeModeling
 
-__all__ = ['baseTrainer', 'stateReconstruction', 'dynamicsLearning', 'operatorLearning', 'surrogateModeling']
+__all__ = ['baseTrainer', 'representationLearning', 'dynamicsLearning', 'operatorLearning', 'generativeModeling']

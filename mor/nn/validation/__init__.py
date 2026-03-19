@@ -1,7 +1,7 @@
 from .baseValidation import baseValidation
-from . import stateReconstruction
+from . import representationLearning
 from . import dynamicsLearning
 from . import operatorLearning
-from . import surrogateModeling
+from . import generativeModeling
 
-__all__ = ['baseValidation', 'stateReconstruction', 'dynamicsLearning', 'operatorLearning', 'surrogateModeling']
+__all__ = ['baseValidation', 'representationLearning', 'dynamicsLearning', 'operatorLearning', 'generativeModeling']

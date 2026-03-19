@@ -1,14 +1,15 @@
 from typing import Any
 import torch
-from mor.nn.configs import stateReconstructionConfig
-import mor.nn.data.stateReconstruction
-import mor.nn.models.stateReconstruction
-import mor.nn.losses.stateReconstruction
-import mor.nn.trainers.stateReconstruction
-import mor.nn.validation.stateReconstruction
+from dataclasses import asdict, is_dataclass
+from mor.nn.configs import representationLearningConfig
+import mor.nn.data.representationLearning
+import mor.nn.models.representationLearning
+import mor.nn.losses.representationLearning
+import mor.nn.trainers.representationLearning
+import mor.nn.validation.representationLearning
 from mor.nn.registry import nnRegistry
 
-def runStateReconstructionTorch(config: stateReconstructionConfig, inputs: Any, targets: Any | None = None, validationInputs: Any | None = None, validationTargets: Any | None = None, initialModelState: dict | None = None, returnModelState: bool = False) -> dict:
+def runRepresentationLearningTorch(config: representationLearningConfig, inputs: Any, targets: Any | None = None, validationInputs: Any | None = None, validationTargets: Any | None = None, initialModelState: dict | None = None, returnModelState: bool = False) -> dict:
     if config.runtime.randomSeed is not None:
         torch.manual_seed(config.runtime.randomSeed)
         if torch.cuda.is_available():
@@ -16,23 +17,19 @@ def runStateReconstructionTorch(config: stateReconstructionConfig, inputs: Any, 
     if config.runtime.deterministic:
         torch.backends.cudnn.deterministic = True
         torch.backends.cudnn.benchmark = False
-    dataModuleClass = nnRegistry.get('data.stateReconstruction', config.dataModuleName)
-    modelClass = nnRegistry.get('models.stateReconstruction', config.modelName)
-    lossClass = nnRegistry.get('losses.stateReconstruction', config.lossFunction)
-    trainerClass = nnRegistry.get('trainers.stateReconstruction', config.trainerName)
-    validationClass = nnRegistry.get('validation.stateReconstruction', config.validationName)
+    dataModuleClass = nnRegistry.get('data.representationLearning', config.dataModuleName)
+    modelClass = nnRegistry.get('models.representationLearning', config.modelName)
+    lossClass = nnRegistry.get('losses.representationLearning', config.lossFunction)
+    trainerClass = nnRegistry.get('trainers.representationLearning', config.trainerName)
+    validationClass = nnRegistry.get('validation.representationLearning', config.validationName)
+    dataLoaderParams = asdict(config.dataLoader) if is_dataclass(config.dataLoader) else {}
+    valSplit = dataLoaderParams.pop('validationSplit', 0.2)
     if validationInputs is None:
         dataModule = dataModuleClass.fromSnapshots(
             inputs=inputs,
             targets=targets,
-            validationSplit=config.dataLoader.validationSplit,
-            shuffle=config.dataLoader.shuffle,
-            randomSeed=config.runtime.randomSeed,
-            batchSize=config.dataLoader.batchSize,
-            numWorkers=config.dataLoader.numWorkers,
-            pinMemory=config.dataLoader.pinMemory,
-            dropLast=config.dataLoader.dropLast,
-            persistentWorkers=config.dataLoader.persistentWorkers
+            validationSplit=valSplit,
+            **dataLoaderParams
         )
     else:
         dataModule = dataModuleClass(
@@ -40,22 +37,15 @@ def runStateReconstructionTorch(config: stateReconstructionConfig, inputs: Any, 
             validationInputs=validationInputs,
             trainTargets=targets,
             validationTargets=validationTargets,
-            batchSize=config.dataLoader.batchSize,
-            shuffle=config.dataLoader.shuffle,
-            numWorkers=config.dataLoader.numWorkers,
-            pinMemory=config.dataLoader.pinMemory,
-            dropLast=config.dataLoader.dropLast,
-            persistentWorkers=config.dataLoader.persistentWorkers
+            **dataLoaderParams
         )
-    model = modelClass(
-        inputDim=config.inputDim,
-        latentDim=config.latentDim,
-        hiddenDims=config.hiddenDims
-    )
+    baseConfigFields = {'name', 'options', 'epochs', 'earlyStopping', 'logging', 'optimizer', 'scheduler', 'dataLoader', 'runtime', 'checkpoint', 'modelName', 'trainerName', 'lossFunction', 'validationName', 'dataModuleName'}
+    modelParams = {k: v for k, v in asdict(config).items() if k not in baseConfigFields}
+    model = modelClass(**modelParams)
     resolvedDeviceName = model.toDevice(config.runtime.deviceName, allowAutoFallback=config.runtime.deviceAutoFallback) if hasattr(model, 'toDevice') else config.runtime.deviceName
     if initialModelState is not None and hasattr(model, 'loadState'):
         model.loadState(initialModelState)
-    lossFunction = lossClass()
+    lossFunction = lossClass(**config.options) if config.options else lossClass()
     trainer = trainerClass(lossFunction=lossFunction, config=config)
     trainingResult = trainer.fit(model=model, dataModule=dataModule)
     validator = validationClass(config=config, lossFunction=lossFunction)

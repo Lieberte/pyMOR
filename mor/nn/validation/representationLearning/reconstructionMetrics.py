@@ -71,4 +71,4 @@ class reconstructionMetrics(baseValidation):
             result['validationLoss'] = sum(validationLossValues) / len(validationLossValues)
         return result
 
-nnRegistry.register('validation.stateReconstruction', 'reconstructionMetrics', reconstructionMetrics)
+nnRegistry.register('validation.representationLearning', 'reconstructionMetrics', reconstructionMetrics)

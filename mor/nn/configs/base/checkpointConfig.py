@@ -8,4 +8,4 @@ class checkpointConfig:
     monitorDelta: float = 0.0
     monitorModeName: str = 'min'
     saveDirName: str = 'checkpoints'
-    filePrefix: str = 'stateReconstruction'
+    filePrefix: str = 'representationLearning'

@@ -1,7 +1,7 @@
 from .baseLoss import baseLoss
-from . import stateReconstruction
+from . import representationLearning
 from . import dynamicsLearning
 from . import operatorLearning
-from . import surrogateModeling
+from . import generativeModeling
 
-__all__ = ['baseLoss', 'stateReconstruction', 'dynamicsLearning', 'operatorLearning', 'surrogateModeling']
+__all__ = ['baseLoss', 'representationLearning', 'dynamicsLearning', 'operatorLearning', 'generativeModeling']

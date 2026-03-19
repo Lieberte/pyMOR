@@ -1,5 +1,5 @@
 from .base import baseConfig
-from .stateReconstructionConfig import stateReconstructionConfig
+from .representationLearningConfig import representationLearningConfig
 from .base import earlyStoppingConfig
 from .base import loggingConfig
 from .base import optimizerConfig
@@ -17,7 +17,7 @@ from . import base
 __all__ = [
     'base',
     'baseConfig',
-    'stateReconstructionConfig',
+    'representationLearningConfig',
     'earlyStoppingConfig',
     'loggingConfig',
     'optimizerConfig',

@@ -77,4 +77,4 @@ class snapshotDataModule(baseDataModule):
     def getValidationLoader(self) -> DataLoader:
         return self._buildLoader(self.validationDataset, shuffle=False, dropLast=False)
 
-nnRegistry.register('data.stateReconstruction', 'snapshotDataModule', snapshotDataModule)
+nnRegistry.register('data.representationLearning', 'snapshotDataModule', snapshotDataModule)

@@ -33,4 +33,4 @@ class autoEncoderTorch(torchModelBase):
     def forward(self, inputs: Any) -> Any:
         return self.decode(self.encode(inputs))
 
-nnRegistry.register('models.stateReconstruction', 'autoEncoderTorch', autoEncoderTorch)
+nnRegistry.register('models.representationLearning', 'autoEncoderTorch', autoEncoderTorch)

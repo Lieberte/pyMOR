@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from .base import baseConfig
 
 @dataclass
-class stateReconstructionConfig(baseConfig):
+class representationLearningConfig(baseConfig):
     modelName: str = 'autoEncoderTorch'
     trainerName: str = 'autoEncoderTrainerTorch'
     lossFunction: str = 'mseReconstructionLoss'

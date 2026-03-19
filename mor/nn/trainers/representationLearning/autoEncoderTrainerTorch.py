@@ -139,4 +139,4 @@ class autoEncoderTrainerTorch(baseTrainer):
         if (epoch + 1) % self.log['interval'] == 0 or epoch == 0 or epoch + 1 == self.epochs:
             print(f"epoch={epoch+1}/{self.epochs} | lr={lr:.6g} | train={trainLoss:.6g} | val={valLoss:.6g}")
 
-nnRegistry.register('trainers.stateReconstruction', 'autoEncoderTrainerTorch', autoEncoderTrainerTorch)
+nnRegistry.register('trainers.representationLearning', 'autoEncoderTrainerTorch', autoEncoderTrainerTorch)
