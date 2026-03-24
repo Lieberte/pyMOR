@@ -1,1 +1,2 @@
-__all__ = []
+from .trajectoryDataModule import trajectoryDataModule
+__all__ = ['trajectoryDataModule']

@@ -14,58 +14,45 @@ def runRepresentationLearningTorch(config: representationLearningConfig, inputs:
         torch.manual_seed(config.runtime.randomSeed)
         if torch.cuda.is_available():
             torch.cuda.manual_seed_all(config.runtime.randomSeed)
-    if config.runtime.deterministic:
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
+            
     dataModuleClass = nnRegistry.get('data.representationLearning', config.dataModuleName)
     modelClass = nnRegistry.get('models.representationLearning', config.modelName)
     lossClass = nnRegistry.get('losses.representationLearning', config.lossFunction)
     trainerClass = nnRegistry.get('trainers.representationLearning', config.trainerName)
     validationClass = nnRegistry.get('validation.representationLearning', config.validationName)
-    dataLoaderParams = asdict(config.dataLoader) if is_dataclass(config.dataLoader) else {}
-    valSplit = dataLoaderParams.pop('validationSplit', 0.2)
+
+    # 1. 实例化数据模块 (透传 dataParams)
     if validationInputs is None:
-        dataModule = dataModuleClass.fromSnapshots(
-            inputs=inputs,
-            targets=targets,
-            validationSplit=valSplit,
-            **dataLoaderParams
-        )
+        dataModule = dataModuleClass.fromSnapshots(inputs=inputs, targets=targets, **config.dataParams)
     else:
-        dataModule = dataModuleClass(
-            trainInputs=inputs,
-            validationInputs=validationInputs,
-            trainTargets=targets,
-            validationTargets=validationTargets,
-            **dataLoaderParams
-        )
-    baseConfigFields = {'name', 'options', 'epochs', 'earlyStopping', 'logging', 'optimizer', 'scheduler', 'dataLoader', 'runtime', 'checkpoint', 'modelName', 'trainerName', 'lossFunction', 'validationName', 'dataModuleName'}
-    modelParams = {k: v for k, v in asdict(config).items() if k not in baseConfigFields}
-    model = modelClass(**modelParams)
-    resolvedDeviceName = model.toDevice(config.runtime.deviceName, allowAutoFallback=config.runtime.deviceAutoFallback) if hasattr(model, 'toDevice') else config.runtime.deviceName
+        dataModule = dataModuleClass(trainInputs=inputs, validationInputs=validationInputs, trainTargets=targets, validationTargets=validationTargets, **config.dataParams)
+
+    # 2. 实例化模型 (透传 modelParams)
+    model = modelClass(**config.modelParams)
+    
     if initialModelState is not None and hasattr(model, 'loadState'):
         model.loadState(initialModelState)
-    lossFunction = lossClass(**config.options) if config.options else lossClass()
+        
+    # 3. 实例化损失函数 (透传 lossParams)
+    lossFunction = lossClass(**config.lossParams) if config.lossParams else lossClass()
+    
+    # 4. 实例化训练器
     trainer = trainerClass(lossFunction=lossFunction, config=config)
     trainingResult = trainer.fit(model=model, dataModule=dataModule)
-    validator = validationClass(config=config, lossFunction=lossFunction)
+    
+    # 5. 实例化验证器 (透传 validationParams)
+    validator = validationClass(config=config, lossFunction=lossFunction, **config.validationParams)
     validationResult = validator.evaluate(model=model, dataModule=dataModule)
+    
     result = {
         'config': config,
         'model': model,
         'dataModule': dataModule,
         'trainingResult': trainingResult,
         'validationResult': validationResult,
-        'runtimeInfo': {
-            'backendName': config.runtime.backendName,
-            'requestedDeviceName': config.runtime.deviceName,
-            'resolvedDeviceName': trainingResult.get('resolvedDeviceName', resolvedDeviceName),
-            'dtypeName': config.runtime.dtypeName,
-            'deterministic': config.runtime.deterministic,
-            'deviceAutoFallback': config.runtime.deviceAutoFallback
-        },
         'trainingState': model.getTrainingState() if hasattr(model, 'getTrainingState') else {}
     }
+    
     if returnModelState and hasattr(model, 'saveState'):
         result['modelState'] = model.saveState(toCpu=True)
     return result
