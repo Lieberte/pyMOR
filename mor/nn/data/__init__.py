@@ -1,7 +1,6 @@
 from .baseDataModule import baseDataModule
-from . import representationLearning
-from . import dynamicsLearning
-from . import operatorLearning
-from . import generativeModeling
+from .snapshotDataModule import snapshotDataModule
+from .trajectoryDataModule import trajectoryDataModule
+from . import geometry
 
-__all__ = ['baseDataModule', 'representationLearning', 'dynamicsLearning', 'operatorLearning', 'generativeModeling']
+__all__ = ['baseDataModule', 'snapshotDataModule', 'trajectoryDataModule', 'geometry']

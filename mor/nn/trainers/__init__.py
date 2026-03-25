@@ -1,7 +1,5 @@
 from .baseTrainer import baseTrainer
-from . import representationLearning
-from . import dynamicsLearning
-from . import operatorLearning
-from . import generativeModeling
+from .autoEncoderTrainerTorch import autoEncoderTrainerTorch
+from .dynamicsTrainerTorch import dynamicsTrainerTorch
 
-__all__ = ['baseTrainer', 'representationLearning', 'dynamicsLearning', 'operatorLearning', 'generativeModeling']
+__all__ = ['baseTrainer', 'autoEncoderTrainerTorch', 'dynamicsTrainerTorch']

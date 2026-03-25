@@ -1,14 +1,9 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from mor.nn.configs.base import baseConfig
 
 @dataclass
 class dynamicsLearningConfig(baseConfig):
-    modelName: str = 'sequenceModels.rnnDynamicsTorch'
-    trainerName: str = 'dynamicsTrainerTorch'
-    lossFunction: str = 'oneStepPredictionLoss'
-    validationName: str = 'dynamicsPredictionMetrics'
-    dataModuleName: str = 'trajectoryDataModule'
+    name: str = 'dynamicsLearningConfig'
     
-    # 动力学任务特有全局参数
     horizon: int = 1
     teacherForcingRatio: float = 0.0

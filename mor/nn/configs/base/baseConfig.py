@@ -11,6 +11,11 @@ from .checkpointConfig import checkpointConfig
 @dataclass
 class baseConfig:
     name: str = 'baseConfig'
+    modelName: str = ''
+    trainerName: str = ''
+    lossFunction: str = ''
+    validationName: str = ''
+    dataModuleName: str = ''
     epochs: int = 100
     earlyStopping: earlyStoppingConfig = field(default_factory=earlyStoppingConfig)
     logging: loggingConfig = field(default_factory=loggingConfig)

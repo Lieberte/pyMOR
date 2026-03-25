@@ -1,8 +1,25 @@
 from .baseModel import baseModel
 from .torchModelBase import torchModelBase
-from . import representationLearning
-from . import dynamicsLearning
-from . import operatorLearning
-from . import generativeModeling
+from .autoEncoderTorch import autoEncoderTorch
+from .variationalAutoEncoderTorch import variationalAutoEncoderTorch
+from .convolutionalAutoEncoderTorch import convolutionalAutoEncoderTorch
+from .rnnDynamicsTorch import rnnDynamicsTorch
+from .lstmDynamicsTorch import lstmDynamicsTorch
+from .gruDynamicsTorch import gruDynamicsTorch
+from .transformerDynamicsTorch import transformerDynamicsTorch
+from .ssmDynamicsTorch import ssmDynamicsTorch
+from .heatSteadyStateTorch import heatSteadyStateTorch
 
-__all__ = ['baseModel', 'torchModelBase', 'representationLearning', 'dynamicsLearning', 'operatorLearning', 'generativeModeling']
+__all__ = [
+    'baseModel',
+    'torchModelBase',
+    'autoEncoderTorch',
+    'variationalAutoEncoderTorch',
+    'convolutionalAutoEncoderTorch',
+    'rnnDynamicsTorch',
+    'lstmDynamicsTorch',
+    'gruDynamicsTorch',
+    'transformerDynamicsTorch',
+    'ssmDynamicsTorch',
+    'heatSteadyStateTorch'
+]
