@@ -1,3 +1,4 @@
+from .heat import *
 from .hamiltonianDynamicsTorch import hamiltonianDynamicsTorch
 from .portHamiltonianDynamicsTorch import portHamiltonianDynamicsTorch
 

@@ -1,3 +1,3 @@
-from .pipelineTorch import runStateReconstructionTorch
+from .pipelineTorch import runRepresentationLearningTorch
 
-__all__ = ['runStateReconstructionTorch']
+__all__ = ['runRepresentationLearningTorch']

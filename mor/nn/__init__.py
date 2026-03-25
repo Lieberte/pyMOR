@@ -7,6 +7,5 @@ from . import data
 from . import hpo
 from . import configs
 from . import runtime
-from . import representationLearning
 
-__all__ = ['nnRegistry', 'models', 'trainers', 'validation', 'losses', 'data', 'hpo', 'configs', 'runtime', 'representationLearning']
+__all__ = ['nnRegistry', 'models', 'trainers', 'validation', 'losses', 'data', 'hpo', 'configs', 'runtime']
