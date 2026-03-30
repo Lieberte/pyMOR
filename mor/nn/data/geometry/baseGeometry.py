@@ -18,5 +18,5 @@ class baseGeometry(ABC):
         pass
 
     @abstractmethod
-    def randomBoundaryPoints(self, n: int) -> np.ndarray:
+    def randomBoundaryPoints(self, n: int, boundaryName: str | None = None) -> np.ndarray:
         pass
