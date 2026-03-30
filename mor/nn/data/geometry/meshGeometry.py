@@ -2,7 +2,7 @@ import numpy as np
 from .baseGeometry import baseGeometry
 
 class meshGeometry(baseGeometry):
-    def __init__(self, nodes: np.ndarray, boundaryNodes: dict[str, np.ndarray] = None):
+    def __init__(self, nodes: np.ndarray, boundaryNodes: dict[str, np.ndarray | list[np.ndarray] | tuple[np.ndarray, ...]] | None = None):
         super().__init__(dim=nodes.shape[1])
         self.nodes = nodes
         self.boundaryNodes = boundaryNodes or {}
@@ -18,11 +18,19 @@ class meshGeometry(baseGeometry):
         indices = np.random.choice(self.nodes.shape[0], n, replace=False)
         return self.nodes[indices]
 
+    def _mergeBoundaryNodes(self, target: np.ndarray | list[np.ndarray] | tuple[np.ndarray, ...]) -> np.ndarray:
+        if isinstance(target, (list, tuple)):
+            return np.concatenate(target, axis=0)
+        return target
+
     def randomBoundaryPoints(self, n: int, boundaryName: str = None) -> np.ndarray:
+        if not self.boundaryNodes:
+            raise ValueError('boundaryNodes is empty')
         if boundaryName and boundaryName in self.boundaryNodes:
-            targetNodes = self.boundaryNodes[boundaryName]
+            targetNodes = self._mergeBoundaryNodes(self.boundaryNodes[boundaryName])
         else:
-            targetNodes = np.concatenate(list(self.boundaryNodes.values()), axis=0)
-            
-        indices = np.random.choice(targetNodes.shape[0], n, replace=False)
+            mergedGroups = [self._mergeBoundaryNodes(group) for group in self.boundaryNodes.values()]
+            targetNodes = np.concatenate(mergedGroups, axis=0)
+        replace = targetNodes.shape[0] < n
+        indices = np.random.choice(targetNodes.shape[0], n, replace=replace)
         return targetNodes[indices]

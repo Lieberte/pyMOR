@@ -1,6 +1,6 @@
 from typing import Any
 import torch
-from mor.nn.configs import dynamicsLearningConfig
+from mor.nn.configs.dynamicsLearningConfig import dynamicsLearningConfig
 import mor.nn.data
 import mor.nn.models
 import mor.nn.losses
