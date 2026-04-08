@@ -104,6 +104,13 @@ class scipyBackend(backendBase):
             return linalg.svd(A, full_matrices=fullMatrices)
 
         @staticmethod
+        def randomizedSvd(A, nComponents=None, iterations=2, randomState=0, fullMatrices=False):
+            from sklearn.utils.extmath import randomized_svd
+            nComponents = min(A.shape) if nComponents is None else nComponents
+            U, S, Vt = randomized_svd(A, n_components=nComponents, n_iter=iterations, random_state=randomState)
+            return U, S, Vt
+
+        @staticmethod
         def svdSparse(A, k, which='LM'):
             U, S, Vt = svds(A, k=k, which=which)
             idx = np.argsort(S)[::-1]
