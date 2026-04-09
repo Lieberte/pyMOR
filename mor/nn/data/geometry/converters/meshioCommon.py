@@ -1,14 +1,20 @@
-from __future__ import annotations
 import numpy as np
 import meshio
 from ..meshIr import meshIr
 
-def _cellSetsToBoundaryNodes(mesh: meshio.Mesh) -> dict[str, np.ndarray]:
+def _cellSetsToBoundaryNodes(
+    mesh: meshio.Mesh,
+    *,
+    pointSetFilter: frozenset[str] | None = None,
+    renameBoundaries: dict[str, str] | None = None,
+) -> dict[str, np.ndarray]:
     nodes = np.asarray(mesh.points, dtype=float)
     out: dict[str, np.ndarray] = {}
     csd = mesh.cell_sets_dict or {}
     cellList = mesh.cells
     for name, perBlock in csd.items():
+        if pointSetFilter is not None and name not in pointSetFilter:
+            continue
         chunks: list[np.ndarray] = []
         for bi, cellBlock in enumerate(cellList):
             if bi >= len(perBlock):
@@ -21,7 +27,8 @@ def _cellSetsToBoundaryNodes(mesh: meshio.Mesh) -> dict[str, np.ndarray]:
             chunks.append(nodes[verts])
         if not chunks:
             continue
-        out[name] = np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
+        key = renameBoundaries[name] if renameBoundaries and name in renameBoundaries else name
+        out[key] = np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
     return out
 
 def meshIoToIr(
@@ -41,7 +48,11 @@ def meshIoToIr(
         idx = np.asarray(indices, dtype=int)
         boundaryNodes[key] = nodes[idx]
     if not boundaryNodes and useCellSetsIfNoPointSets:
-        boundaryNodes = _cellSetsToBoundaryNodes(mesh)
+        boundaryNodes = _cellSetsToBoundaryNodes(
+            mesh,
+            pointSetFilter=pointSetFilter,
+            renameBoundaries=renameBoundaries,
+        )
     cells = None
     if mesh.cells:
         cellList = mesh.cells

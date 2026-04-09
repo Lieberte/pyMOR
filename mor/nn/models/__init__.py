@@ -9,6 +9,8 @@ from .gruDynamicsTorch import gruDynamicsTorch
 from .transformerDynamicsTorch import transformerDynamicsTorch
 from .ssmDynamicsTorch import ssmDynamicsTorch
 from .heatSteadyStateTorch import heatSteadyStateTorch
+from . import pinn
+from . import operator
 
 __all__ = [
     'baseModel',
@@ -21,5 +23,7 @@ __all__ = [
     'gruDynamicsTorch',
     'transformerDynamicsTorch',
     'ssmDynamicsTorch',
-    'heatSteadyStateTorch'
+    'heatSteadyStateTorch',
+    'pinn',
+    'operator'
 ]

@@ -8,5 +8,6 @@ from . import hpo
 from . import configs
 from . import runtime
 from . import reductors
+from . import pipelines
 
-__all__ = ['nnRegistry', 'models', 'trainers', 'validation', 'losses', 'data', 'hpo', 'configs', 'runtime', 'reductors']
+__all__ = ['nnRegistry', 'models', 'trainers', 'validation', 'losses', 'data', 'hpo', 'configs', 'runtime', 'reductors', 'pipelines']
