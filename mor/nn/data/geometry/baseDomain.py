@@ -41,6 +41,16 @@ class baseDomain(ABC):
         regionNames = np.full(x.shape[0], regionName, dtype=object)
         return sampleBatch(x=x, regionNames=regionNames)
 
+    def sampleRegion(self, n: int, regionName: str, **kwargs) -> np.ndarray:
+        if regionName == 'interior':
+            return self.sampleInterior(n, **kwargs)
+        return self.sampleBoundary(n, boundaryName=regionName, **kwargs)
+
+    def sampleRegionBatch(self, n: int, regionName: str, **kwargs) -> sampleBatch:
+        if regionName == 'interior':
+            return self.sampleInteriorBatch(n, regionName=regionName, **kwargs)
+        return self.sampleBoundaryBatch(n, boundaryName=regionName, **kwargs)
+
     def sampleBoundaryBatch(self, n: int, boundaryName: str | None = None, **kwargs) -> sampleBatch:
         x = self.sampleBoundary(n, boundaryName=boundaryName, **kwargs)
         if boundaryName is None:

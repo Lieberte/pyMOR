@@ -117,6 +117,18 @@ class meshDomain(baseDomain):
             sampler = self.sampler
         return sampler.sampleBoundary(self, n, boundaryName=boundaryName)
 
+    def sampleMixedBatch(self, sampleCountByRegion: dict[str, int], sampler=None):
+        if sampler is None:
+            sampler = self.sampler
+        return sampler.sampleMixedBatch(self, sampleCountByRegion)
+
+    def sampleWeightedBatch(self, n: int, regionWeights: dict[str, float] | None = None, sampler=None):
+        if sampler is None:
+            sampler = self.sampler
+        if not hasattr(sampler, 'sampleWeightedBatch'):
+            raise AttributeError('sampler does not support sampleWeightedBatch')
+        return sampler.sampleWeightedBatch(self, n, regionWeights=regionWeights)
+
     def fitUnitCube(self) -> None:
         self._normShift, self._normScale = fitUnitCubeTransform(self.nodes)
 

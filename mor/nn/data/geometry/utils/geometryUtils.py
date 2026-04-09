@@ -81,6 +81,28 @@ def sampleRows(data: np.ndarray, n: int) -> np.ndarray:
     idx = np.random.choice(arr.shape[0], count, replace=replace)
     return arr[idx]
 
+def normalizeSampleWeights(weights: np.ndarray) -> np.ndarray:
+    arr = toFloatArray(weights).reshape(-1)
+    if arr.size == 0:
+        raise ValueError('weights must not be empty')
+    if np.any(arr < 0):
+        raise ValueError('weights must be non-negative')
+    total = arr.sum()
+    if total <= 0:
+        raise ValueError('weights must sum to a positive value')
+    return arr / total
+
+def splitSampleCounts(n: int, weights: np.ndarray) -> np.ndarray:
+    count = validateSampleCount(n)
+    normalized = normalizeSampleWeights(weights)
+    raw = normalized * count
+    counts = np.floor(raw).astype(int)
+    remainder = count - counts.sum()
+    if remainder > 0:
+        order = np.argsort(-(raw - counts))
+        counts[order[:remainder]] += 1
+    return counts
+
 def fitUnitCubeTransform(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     mn, mx = computeBoundingBox(nodes)
     span = mx - mn
