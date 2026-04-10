@@ -103,6 +103,32 @@ def splitSampleCounts(n: int, weights: np.ndarray) -> np.ndarray:
         counts[order[:remainder]] += 1
     return counts
 
+def normalizeSampleCountMap(sampleCountByName: dict[str, int], emptyError: str) -> dict[str, int]:
+    normalized = {name: int(count) for name, count in sampleCountByName.items() if int(count) > 0}
+    if not normalized:
+        raise ValueError(emptyError)
+    return normalized
+
+def splitSampleWeightMap(
+    n: int,
+    sampleWeightByName: dict[str, float],
+) -> tuple[list[str], np.ndarray, dict[str, int]]:
+    names = list(sampleWeightByName.keys())
+    weights = normalizeSampleWeights(np.asarray([sampleWeightByName[name] for name in names], dtype=float))
+    counts = splitSampleCounts(n, weights)
+    sampleCountByName = {name: int(count) for name, count in zip(names, counts)}
+    return names, weights, sampleCountByName
+
+def expandSampleWeights(
+    names: list[str],
+    sampleCountByName: dict[str, int],
+    weights: np.ndarray,
+) -> np.ndarray:
+    return np.concatenate(
+        [np.full(sampleCountByName[name], weights[i], dtype=float) for i, name in enumerate(names) if sampleCountByName[name] > 0],
+        axis=0,
+    )
+
 def fitUnitCubeTransform(nodes: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
     mn, mx = computeBoundingBox(nodes)
     span = mx - mn

@@ -1,6 +1,9 @@
 import numpy as np
 from abc import ABC, abstractmethod
 from ..sampleBatch import sampleBatch
+from ..utils import expandSampleWeights
+from ..utils import normalizeSampleCountMap
+from ..utils import splitSampleWeightMap
 
 class baseSampler(ABC):
     @abstractmethod
@@ -36,11 +39,33 @@ class baseSampler(ABC):
         return sampleBatch(x=x, regionNames=regionNames, normals=normals)
 
     def sampleMixedBatch(self, domain, sampleCountByRegion: dict[str, int]) -> sampleBatch:
-        batches: list[sampleBatch] = []
-        for regionName, n in sampleCountByRegion.items():
-            if int(n) <= 0:
-                continue
-            batches.append(self.sampleRegionBatch(domain, int(n), regionName=regionName))
-        if not batches:
-            raise ValueError('sampleCountByRegion must contain a positive sample count')
+        sampleCountByRegion = normalizeSampleCountMap(
+            sampleCountByRegion,
+            emptyError='sampleCountByRegion must contain a positive sample count',
+        )
+        batches = [self.sampleRegionBatch(domain, n, regionName=regionName) for regionName, n in sampleCountByRegion.items()]
         return sampleBatch.concat(batches)
+
+    def sampleBoundaryMixedBatch(self, domain, sampleCountByBoundary: dict[str, int]) -> sampleBatch:
+        sampleCountByBoundary = normalizeSampleCountMap(
+            sampleCountByBoundary,
+            emptyError='sampleCountByBoundary must contain a positive sample count',
+        )
+        batches = [self.sampleBoundaryBatch(domain, n, boundaryName=boundaryName) for boundaryName, n in sampleCountByBoundary.items()]
+        return sampleBatch.concat(batches)
+
+    def sampleWeightedBatch(self, domain, n: int, regionWeights: dict[str, float] | None = None) -> sampleBatch:
+        activeRegionWeights = dict(regionWeights) if regionWeights is not None else {}
+        if not activeRegionWeights:
+            activeRegionWeights = {'interior': 1.0, **{name: 1.0 for name in domain.boundaryNames}}
+        regionNames, weights, sampleCountByRegion = splitSampleWeightMap(n, activeRegionWeights)
+        batch = self.sampleMixedBatch(domain, sampleCountByRegion)
+        return batch.withWeights(expandSampleWeights(regionNames, sampleCountByRegion, weights))
+
+    def sampleBoundaryWeightedBatch(self, domain, n: int, boundaryWeights: dict[str, float] | None = None) -> sampleBatch:
+        activeBoundaryWeights = dict(boundaryWeights) if boundaryWeights is not None else {name: 1.0 for name in domain.boundaryNames}
+        if not activeBoundaryWeights:
+            raise ValueError('boundaryWeights must not be empty')
+        boundaryNames, weights, sampleCountByBoundary = splitSampleWeightMap(n, activeBoundaryWeights)
+        batch = self.sampleBoundaryMixedBatch(domain, sampleCountByBoundary)
+        return batch.withWeights(expandSampleWeights(boundaryNames, sampleCountByBoundary, weights))

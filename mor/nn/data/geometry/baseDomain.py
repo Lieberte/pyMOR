@@ -51,6 +51,16 @@ class baseDomain(ABC):
             return self.sampleInteriorBatch(n, regionName=regionName, **kwargs)
         return self.sampleBoundaryBatch(n, boundaryName=regionName, **kwargs)
 
+    def sampleMixedBatch(self, sampleCountByRegion: dict[str, int], **kwargs) -> sampleBatch:
+        batches: list[sampleBatch] = []
+        for regionName, n in sampleCountByRegion.items():
+            if int(n) <= 0:
+                continue
+            batches.append(self.sampleRegionBatch(int(n), regionName=regionName, **kwargs))
+        if not batches:
+            raise ValueError('sampleCountByRegion must contain a positive sample count')
+        return sampleBatch.concat(batches)
+
     def sampleBoundaryBatch(self, n: int, boundaryName: str | None = None, **kwargs) -> sampleBatch:
         x = self.sampleBoundary(n, boundaryName=boundaryName, **kwargs)
         if boundaryName is None:

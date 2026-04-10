@@ -8,6 +8,28 @@ class sampleBatch:
     normals: np.ndarray | None = None
     weights: np.ndarray | None = None
 
+    @property
+    def size(self) -> int:
+        return int(self.x.shape[0])
+
+    def withWeights(self, weights: np.ndarray) -> 'sampleBatch':
+        return sampleBatch(x=self.x, regionNames=self.regionNames, normals=self.normals, weights=weights)
+
+    def withNormals(self, normals: np.ndarray) -> 'sampleBatch':
+        return sampleBatch(x=self.x, regionNames=self.regionNames, normals=normals, weights=self.weights)
+
+    def subset(self, mask: np.ndarray) -> 'sampleBatch':
+        return sampleBatch(
+            x=self.x[mask],
+            regionNames=self.regionNames[mask],
+            normals=None if self.normals is None else self.normals[mask],
+            weights=None if self.weights is None else self.weights[mask],
+        )
+
+    def shuffled(self) -> 'sampleBatch':
+        order = np.random.permutation(self.size)
+        return self.subset(order)
+
     @classmethod
     def concat(cls, batches: list['sampleBatch']) -> 'sampleBatch':
         if not batches:

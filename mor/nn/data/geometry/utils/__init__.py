@@ -10,6 +10,9 @@ from .geometryUtils import mergeBoundaryMap
 from .geometryUtils import sampleRows
 from .geometryUtils import normalizeSampleWeights
 from .geometryUtils import splitSampleCounts
+from .geometryUtils import normalizeSampleCountMap
+from .geometryUtils import splitSampleWeightMap
+from .geometryUtils import expandSampleWeights
 from .geometryUtils import fitUnitCubeTransform
 
 __all__ = [
@@ -25,5 +28,8 @@ __all__ = [
     'sampleRows',
     'normalizeSampleWeights',
     'splitSampleCounts',
+    'normalizeSampleCountMap',
+    'splitSampleWeightMap',
+    'expandSampleWeights',
     'fitUnitCubeTransform',
 ]
