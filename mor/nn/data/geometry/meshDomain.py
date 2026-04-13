@@ -55,7 +55,7 @@ class meshDomain(baseDomain):
 
     @property
     def regions(self) -> list[geometryRegion]:
-        regions = [geometryRegion(name='interior', kind='interior', dim=self.dim)]
+        regions = [geometryRegion(name=self.interiorRegionName, kind='interior', dim=self.dim)]
         regions.extend(geometryRegion(name=name, kind='boundary', dim=max(self.dim - 1, 0)) for name in self.boundaryNames)
         return regions
 

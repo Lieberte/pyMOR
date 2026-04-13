@@ -1,11 +1,15 @@
 import numpy as np
 from abc import ABC, abstractmethod
+from functools import partial
+from ..baseDomain import baseDomain
 from ..sampleBatch import sampleBatch
 from ..utils import expandSampleWeights
 from ..utils import normalizeSampleCountMap
 from ..utils import splitSampleWeightMap
 
 class baseSampler(ABC):
+    interiorRegionName = baseDomain.interiorRegionName
+
     @abstractmethod
     def sampleInterior(self, domain, n: int) -> np.ndarray:
         pass
@@ -14,20 +18,26 @@ class baseSampler(ABC):
     def sampleBoundary(self, domain, n: int, boundaryName: str | None = None) -> np.ndarray:
         pass
 
-    def sampleRegion(self, domain, n: int, regionName: str) -> np.ndarray:
-        if regionName == 'interior':
-            return self.sampleInterior(domain, n)
-        return self.sampleBoundary(domain, n, boundaryName=regionName)
+    def _samplerForRegion(self, regionName: str, *, batch: bool):
+        interior = regionName == self.interiorRegionName
+        if batch:
+            return (
+                partial(self.sampleInteriorBatch, regionName=regionName)
+                if interior
+                else partial(self.sampleBoundaryBatch, boundaryName=regionName)
+            )
+        return self.sampleInterior if interior else partial(self.sampleBoundary, boundaryName=regionName)
 
-    def sampleInteriorBatch(self, domain, n: int, regionName: str = 'interior') -> sampleBatch:
+    def sampleRegion(self, domain, n: int, regionName: str) -> np.ndarray:
+        return self._samplerForRegion(regionName, batch=False)(domain, n)
+
+    def sampleInteriorBatch(self, domain, n: int, regionName: str = interiorRegionName) -> sampleBatch:
         x = self.sampleInterior(domain, n)
         regionNames = np.full(x.shape[0], regionName, dtype=object)
         return sampleBatch(x=x, regionNames=regionNames)
 
     def sampleRegionBatch(self, domain, n: int, regionName: str) -> sampleBatch:
-        if regionName == 'interior':
-            return self.sampleInteriorBatch(domain, n, regionName=regionName)
-        return self.sampleBoundaryBatch(domain, n, boundaryName=regionName)
+        return self._samplerForRegion(regionName, batch=True)(domain, n)
 
     def sampleBoundaryBatch(self, domain, n: int, boundaryName: str | None = None) -> sampleBatch:
         x = self.sampleBoundary(domain, n, boundaryName=boundaryName)
@@ -57,7 +67,7 @@ class baseSampler(ABC):
     def sampleWeightedBatch(self, domain, n: int, regionWeights: dict[str, float] | None = None) -> sampleBatch:
         activeRegionWeights = dict(regionWeights) if regionWeights is not None else {}
         if not activeRegionWeights:
-            activeRegionWeights = {'interior': 1.0, **{name: 1.0 for name in domain.boundaryNames}}
+            activeRegionWeights = {self.interiorRegionName: 1.0, **{name: 1.0 for name in domain.boundaryNames}}
         regionNames, weights, sampleCountByRegion = splitSampleWeightMap(n, activeRegionWeights)
         batch = self.sampleMixedBatch(domain, sampleCountByRegion)
         return batch.withWeights(expandSampleWeights(regionNames, sampleCountByRegion, weights))

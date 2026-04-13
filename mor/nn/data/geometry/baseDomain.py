@@ -1,8 +1,11 @@
 import numpy as np
 from abc import ABC, abstractmethod
+from functools import partial
 from .sampleBatch import sampleBatch
 
 class baseDomain(ABC):
+    interiorRegionName = 'interior'
+
     def __init__(self, dim: int):
         self.dim = dim
 
@@ -36,20 +39,26 @@ class baseDomain(ABC):
             return np.fromiter((item is not None for item in located), dtype=bool, count=located.shape[0])
         return located == boundaryName
 
-    def sampleInteriorBatch(self, n: int, regionName: str = 'interior', **kwargs) -> sampleBatch:
+    def sampleInteriorBatch(self, n: int, regionName: str = interiorRegionName, **kwargs) -> sampleBatch:
         x = self.sampleInterior(n, **kwargs)
         regionNames = np.full(x.shape[0], regionName, dtype=object)
         return sampleBatch(x=x, regionNames=regionNames)
 
+    def _samplerForRegion(self, regionName: str, *, batch: bool):
+        interior = regionName == self.interiorRegionName
+        if batch:
+            return (
+                partial(self.sampleInteriorBatch, regionName=regionName)
+                if interior
+                else partial(self.sampleBoundaryBatch, boundaryName=regionName)
+            )
+        return self.sampleInterior if interior else partial(self.sampleBoundary, boundaryName=regionName)
+
     def sampleRegion(self, n: int, regionName: str, **kwargs) -> np.ndarray:
-        if regionName == 'interior':
-            return self.sampleInterior(n, **kwargs)
-        return self.sampleBoundary(n, boundaryName=regionName, **kwargs)
+        return self._samplerForRegion(regionName, batch=False)(n, **kwargs)
 
     def sampleRegionBatch(self, n: int, regionName: str, **kwargs) -> sampleBatch:
-        if regionName == 'interior':
-            return self.sampleInteriorBatch(n, regionName=regionName, **kwargs)
-        return self.sampleBoundaryBatch(n, boundaryName=regionName, **kwargs)
+        return self._samplerForRegion(regionName, batch=True)(n, **kwargs)
 
     def sampleMixedBatch(self, sampleCountByRegion: dict[str, int], **kwargs) -> sampleBatch:
         batches: list[sampleBatch] = []

@@ -2,6 +2,14 @@ import numpy as np
 import meshio
 from ..meshIr import meshIr
 
+def _uniqueNodesFromCells(conn: np.ndarray, idxCell: np.ndarray, nodes: np.ndarray) -> np.ndarray:
+    idxCell = np.asarray(idxCell, dtype=int)
+    if idxCell.size == 0:
+        return np.empty((0, nodes.shape[1]), dtype=float)
+    conn = np.asarray(conn)
+    verts = np.unique(conn[idxCell].ravel())
+    return nodes[verts]
+
 def _cellSetsToBoundaryNodes(
     mesh: meshio.Mesh,
     *,
@@ -16,15 +24,33 @@ def _cellSetsToBoundaryNodes(
         if pointSetFilter is not None and name not in pointSetFilter:
             continue
         chunks: list[np.ndarray] = []
-        for bi, cellBlock in enumerate(cellList):
-            if bi >= len(perBlock):
-                continue
-            idxCell = np.asarray(perBlock[bi], dtype=int)
-            if idxCell.size == 0:
-                continue
-            conn = np.asarray(cellBlock.data)
-            verts = np.unique(conn[idxCell].ravel())
-            chunks.append(nodes[verts])
+        if isinstance(perBlock, dict) and perBlock:
+            vals = list(perBlock.values())
+            if vals and isinstance(vals[0], np.ndarray):
+                for cellType, idxCell in perBlock.items():
+                    idxCell = np.asarray(idxCell, dtype=int)
+                    if idxCell.size == 0:
+                        continue
+                    rows: list[np.ndarray] = []
+                    for cellBlock in cellList:
+                        if cellBlock.type != cellType:
+                            continue
+                        rows.append(np.asarray(cellBlock.data))
+                    if not rows:
+                        continue
+                    conn = np.concatenate(rows, axis=0)
+                    chunk = _uniqueNodesFromCells(conn, idxCell, nodes)
+                    if chunk.shape[0] > 0:
+                        chunks.append(chunk)
+        elif isinstance(perBlock, (list, tuple)):
+            for bi, cellBlock in enumerate(cellList):
+                if bi >= len(perBlock):
+                    continue
+                idxCell = np.asarray(perBlock[bi], dtype=int)
+                if idxCell.size == 0:
+                    continue
+                conn = np.asarray(cellBlock.data)
+                chunks.append(_uniqueNodesFromCells(conn, idxCell, nodes))
         if not chunks:
             continue
         key = renameBoundaries[name] if renameBoundaries and name in renameBoundaries else name
