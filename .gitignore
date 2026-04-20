@@ -3,7 +3,8 @@
 /.cursor/
 /applicationTests/
 /.idea/
-/refer/
 /performanceTests/
 **/__pycache__/
 *.pyc
+/refer/
+/doc

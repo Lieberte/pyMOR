@@ -11,6 +11,7 @@ from .checkpointConfig import checkpointConfig
 @dataclass
 class baseConfig:
     name: str = 'baseConfig'
+    trainingMode: str = 'point'
     modelName: str = ''
     trainerName: str = ''
     lossFunction: str = ''

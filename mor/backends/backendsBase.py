@@ -155,10 +155,6 @@ class backendBase(ABC):
             return getattr(data, 'shape', ())
 
         @staticmethod
-        def size(data: Any) -> int:
-            return getattr(data, 'size', 0)
-
-        @staticmethod
         def reshape(data: Any, shape: Tuple[int, ...]) -> Any:
             return getattr(data, 'reshape')(shape)
 

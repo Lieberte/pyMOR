@@ -1,61 +1,91 @@
+from pathlib import Path
 import numpy as np
 import meshio
 from ..meshIr import meshIr
+from ..utils.facetUtils import appendTrianglesFromSurfaceBlock
+from ..utils.facetUtils import extractQuadSubsetBoundaryLines
+from ..utils.facetUtils import extractTetraSubsetBoundaryTriangles
+from ..utils.facetUtils import extractTriangleSubsetBoundaryLines
+from ..utils.facetUtils import mergeTriangleList
+from ..utils.facetUtils import topoDim
 
-def _uniqueNodesFromCells(conn: np.ndarray, idxCell: np.ndarray, nodes: np.ndarray) -> np.ndarray:
-    idxCell = np.asarray(idxCell, dtype=int)
-    if idxCell.size == 0:
-        return np.empty((0, nodes.shape[1]), dtype=float)
-    conn = np.asarray(conn)
-    verts = np.unique(conn[idxCell].ravel())
-    return nodes[verts]
+def _mergeIndexGroups(groups: dict[str, np.ndarray], name: str, idx: np.ndarray) -> None:
+    if idx.size == 0:
+        return
+    if name not in groups:
+        groups[name] = idx
+        return
+    groups[name] = np.unique(np.concatenate([groups[name], idx]))
 
-def _cellSetsToBoundaryNodes(
+def _groupByCellType(mesh: meshio.Mesh) -> dict[str, np.ndarray]:
+    grouped: dict[str, list[np.ndarray]] = {}
+    for cellBlock in mesh.cells:
+        grouped.setdefault(cellBlock.type, []).append(np.asarray(cellBlock.data, dtype=int))
+    return {k: np.concatenate(v, axis=0) for k, v in grouped.items() if v}
+
+def _iterCellSetBlocks(mesh: meshio.Mesh, groupedCells: dict[str, np.ndarray]):
+    for name, typeToIdx in (mesh.cell_sets_dict or {}).items():
+        for cellType, idxCell in typeToIdx.items():
+            if cellType not in groupedCells:
+                continue
+            idx = np.asarray(idxCell, dtype=int)
+            if idx.size == 0:
+                continue
+            yield name, cellType, idx, groupedCells[cellType]
+
+def _cellSetNodeIndices(conn: np.ndarray, idxCell: np.ndarray) -> np.ndarray:
+    return np.unique(conn[idxCell].ravel())
+
+def _accumulateCellSets(
     mesh: meshio.Mesh,
+    groupedCells: dict[str, np.ndarray],
+    spatialDim: int,
     *,
     pointSetFilter: frozenset[str] | None = None,
     renameBoundaries: dict[str, str] | None = None,
-) -> dict[str, np.ndarray]:
-    nodes = np.asarray(mesh.points, dtype=float)
-    out: dict[str, np.ndarray] = {}
-    csd = mesh.cell_sets_dict or {}
-    cellList = mesh.cells
-    for name, perBlock in csd.items():
+) -> tuple[dict[str, np.ndarray], dict[str, list[tuple[str, np.ndarray]]]]:
+    boundaryNodeIdx: dict[str, np.ndarray] = {}
+    triBuckets: dict[str, list[np.ndarray]] = {}
+    lineBuckets: dict[str, list[np.ndarray]] = {}
+    for name, cellType, idxCell, conn in _iterCellSetBlocks(mesh, groupedCells):
         if pointSetFilter is not None and name not in pointSetFilter:
             continue
-        chunks: list[np.ndarray] = []
-        if isinstance(perBlock, dict) and perBlock:
-            vals = list(perBlock.values())
-            if vals and isinstance(vals[0], np.ndarray):
-                for cellType, idxCell in perBlock.items():
-                    idxCell = np.asarray(idxCell, dtype=int)
-                    if idxCell.size == 0:
-                        continue
-                    rows: list[np.ndarray] = []
-                    for cellBlock in cellList:
-                        if cellBlock.type != cellType:
-                            continue
-                        rows.append(np.asarray(cellBlock.data))
-                    if not rows:
-                        continue
-                    conn = np.concatenate(rows, axis=0)
-                    chunk = _uniqueNodesFromCells(conn, idxCell, nodes)
-                    if chunk.shape[0] > 0:
-                        chunks.append(chunk)
-        elif isinstance(perBlock, (list, tuple)):
-            for bi, cellBlock in enumerate(cellList):
-                if bi >= len(perBlock):
-                    continue
-                idxCell = np.asarray(perBlock[bi], dtype=int)
-                if idxCell.size == 0:
-                    continue
-                conn = np.asarray(cellBlock.data)
-                chunks.append(_uniqueNodesFromCells(conn, idxCell, nodes))
-        if not chunks:
+        key = (renameBoundaries or {}).get(name, name)
+        _mergeIndexGroups(boundaryNodeIdx, key, _cellSetNodeIndices(conn, idxCell))
+        try:
+            td = topoDim(cellType)
+        except KeyError:
             continue
-        key = renameBoundaries[name] if renameBoundaries and name in renameBoundaries else name
-        out[key] = np.concatenate(chunks, axis=0) if len(chunks) > 1 else chunks[0]
-    return out
+        if td == spatialDim - 1:
+            if spatialDim == 3:
+                parts = appendTrianglesFromSurfaceBlock(cellType, conn, idxCell)
+                for p in parts:
+                    triBuckets.setdefault(key, []).append(p)
+            elif spatialDim == 2 and cellType == 'line':
+                sub = conn[idxCell]
+                lineBuckets.setdefault(key, []).append(sub)
+        elif td == spatialDim and spatialDim == 3 and cellType in ('tetra', 'tetra4', 'tetra10'):
+            ext = extractTetraSubsetBoundaryTriangles(conn, idxCell)
+            if ext.shape[0] > 0:
+                triBuckets.setdefault(key, []).append(ext)
+        elif td == spatialDim and spatialDim == 2 and cellType in ('triangle', 'triangle6', 'triangle10'):
+            ext = extractTriangleSubsetBoundaryLines(conn, idxCell)
+            if ext.shape[0] > 0:
+                lineBuckets.setdefault(key, []).append(ext)
+        elif td == spatialDim and spatialDim == 2 and cellType in ('quad', 'quad8', 'quad9'):
+            ext = extractQuadSubsetBoundaryLines(conn, idxCell)
+            if ext.shape[0] > 0:
+                lineBuckets.setdefault(key, []).append(ext)
+    out: dict[str, list[tuple[str, np.ndarray]]] = {}
+    for key, chunks in triBuckets.items():
+        merged = mergeTriangleList(chunks)
+        if merged.shape[0] > 0:
+            out.setdefault(key, []).append(('triangle', merged))
+    for key, chunks in lineBuckets.items():
+        merged = np.concatenate(chunks, axis=0)
+        if merged.shape[0] > 0:
+            out.setdefault(key, []).append(('line', merged))
+    return boundaryNodeIdx, out
 
 def meshIoToIr(
     mesh: meshio.Mesh,
@@ -63,24 +93,41 @@ def meshIoToIr(
     pointSetFilter: frozenset[str] | None = None,
     renameBoundaries: dict[str, str] | None = None,
     useCellSetsIfNoPointSets: bool = True,
+    fillBoundaryFacesFromCellSets: bool = True,
 ) -> meshIr:
     nodes = np.asarray(mesh.points, dtype=float)
-    boundaryNodes: dict[str, np.ndarray | list[np.ndarray] | tuple[np.ndarray, ...]] = {}
-    ps = mesh.point_sets or {}
-    for name, indices in ps.items():
-        if pointSetFilter is not None and name not in pointSetFilter:
-            continue
-        key = renameBoundaries[name] if renameBoundaries and name in renameBoundaries else name
-        idx = np.asarray(indices, dtype=int)
-        boundaryNodes[key] = nodes[idx]
-    if not boundaryNodes and useCellSetsIfNoPointSets:
-        boundaryNodes = _cellSetsToBoundaryNodes(
-            mesh,
-            pointSetFilter=pointSetFilter,
-            renameBoundaries=renameBoundaries,
-        )
-    cells = None
-    if mesh.cells:
-        cellList = mesh.cells
-        cells = [(c.type, np.asarray(c.data)) for c in cellList]
-    return meshIr(nodes=nodes, boundaryNodes=boundaryNodes, cells=cells)
+    spatialDim = int(nodes.shape[1])
+    groupedCells = _groupByCellType(mesh)
+    pointNodeIdx: dict[str, np.ndarray] = {
+        (renameBoundaries or {}).get(name, name): np.asarray(indices, dtype=int)
+        for name, indices in (mesh.point_sets or {}).items()
+        if pointSetFilter is None or name in pointSetFilter
+    }
+    cellNodeIdx, cellBoundaryFaces = _accumulateCellSets(
+        mesh,
+        groupedCells,
+        spatialDim,
+        pointSetFilter=pointSetFilter,
+        renameBoundaries=renameBoundaries,
+    )
+    boundaryNodeIdx = dict(pointNodeIdx)
+    if pointNodeIdx:
+        for name, idx in cellNodeIdx.items():
+            _mergeIndexGroups(boundaryNodeIdx, name, idx)
+    elif useCellSetsIfNoPointSets:
+        boundaryNodeIdx = cellNodeIdx
+    boundaryNodes: dict[str, np.ndarray] = {name: nodes[idx] for name, idx in boundaryNodeIdx.items()}
+    boundaryFaces = cellBoundaryFaces if fillBoundaryFacesFromCellSets else {}
+    cells = [(c.type, np.asarray(c.data)) for c in mesh.cells] if len(mesh.cells) > 0 else None
+    return meshIr(nodes=nodes, boundaryNodes=boundaryNodes, cells=cells, boundaryFaces=boundaryFaces)
+
+def meshFileToIr(
+    path: str | Path,
+    *,
+    meshioReadKwargs: dict | None = None,
+    **kwargs,
+) -> meshIr:
+    resolved = Path(path).expanduser()
+    opts: dict = dict(meshioReadKwargs or {})
+    mesh = meshio.read(resolved, **opts)
+    return meshIoToIr(mesh, **kwargs)

@@ -5,6 +5,7 @@ from ..baseDomain import baseDomain
 from ..sampleBatch import sampleBatch
 from ..utils import expandSampleWeights
 from ..utils import normalizeSampleCountMap
+from ..utils import sampleRows
 from ..utils import splitSampleWeightMap
 
 class baseSampler(ABC):
@@ -17,6 +18,11 @@ class baseSampler(ABC):
     @abstractmethod
     def sampleBoundary(self, domain, n: int, boundaryName: str | None = None) -> np.ndarray:
         pass
+
+    def _sampleBoundaryPoints(self, domain, n: int, boundaryName: str | None = None) -> np.ndarray:
+        if hasattr(domain, 'boundaryUsesFacets') and domain.boundaryUsesFacets(boundaryName):
+            return domain.samplePointsOnBoundaryFacets(n, boundaryName)
+        return sampleRows(domain.boundaryPoints(boundaryName=boundaryName), n)
 
     def _samplerForRegion(self, regionName: str, *, batch: bool):
         interior = regionName == self.interiorRegionName

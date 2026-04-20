@@ -14,31 +14,56 @@ from .utils import fitUnitCubeTransform
 from .utils import mergeBoundaryMap
 from .utils import normalizeBoundaryMap
 from .utils import validateNodes
+from .utils.facetUtils import facetPatch
+from .utils.facetUtils import uniqueRowsStacked
+from .utils.facetUtils import validateBoundaryFacesDict
+from .utils.geometryUtils import sampleRows
+from .utils.geometryUtils import splitSampleCounts
 
 class meshDomain(baseDomain):
     def __init__(
         self,
         nodes: np.ndarray,
         boundaryNodes: dict[str, np.ndarray | list[np.ndarray] | tuple[np.ndarray, ...]] | None = None,
+        boundaryFaces: dict[str, list[tuple[str, np.ndarray]]] | None = None,
         *,
-        containStrategy=convexHullContainStrategy(),
-        boundaryLocateStrategy=nearestBoundaryLocateStrategy(),
-        boundaryNormalStrategy=localPcaBoundaryNormalStrategy(),
+        containStrategy: convexHullContainStrategy | None = None,
+        boundaryLocateStrategy: nearestBoundaryLocateStrategy | None = None,
+        boundaryNormalStrategy: localPcaBoundaryNormalStrategy | None = None,
         boundaryTol: float | None = None,
         hullTol: float | None = None,
-        sampler=randomSampler(),
+        sampler: randomSampler | None = None,
     ):
         normalizedNodes = validateNodes(nodes)
         super().__init__(dim=normalizedNodes.shape[1])
         self.nodes = normalizedNodes
-        self.boundaryNodes = normalizeBoundaryMap(boundaryNodes, dim=self.dim)
-        self.containStrategy = containStrategy
-        self.boundaryLocateStrategy = boundaryLocateStrategy
-        self.boundaryNormalStrategy = boundaryNormalStrategy
+        self.boundaryFaces = validateBoundaryFacesDict(boundaryFaces, self.nodes.shape[0])
+        self._facetPatch: dict[str, facetPatch] = {}
+        for name, blocks in self.boundaryFaces.items():
+            patch = facetPatch(self.nodes, blocks)
+            if not patch.isEmpty():
+                self._facetPatch[name] = patch
+        bn = normalizeBoundaryMap(boundaryNodes, dim=self.dim)
+        for name, patch in self._facetPatch.items():
+            corners = patch.cornerCoordinates()
+            if corners.shape[0] == 0:
+                continue
+            if name not in bn or bn[name].shape[0] == 0:
+                bn[name] = corners
+            else:
+                bn[name] = uniqueRowsStacked(bn[name], corners)
+        self.boundaryNodes = bn
+        self.containStrategy = containStrategy if containStrategy is not None else convexHullContainStrategy()
+        self.boundaryLocateStrategy = (
+            boundaryLocateStrategy if boundaryLocateStrategy is not None else nearestBoundaryLocateStrategy()
+        )
+        self.boundaryNormalStrategy = (
+            boundaryNormalStrategy if boundaryNormalStrategy is not None else localPcaBoundaryNormalStrategy()
+        )
         char = computeCharacteristicLength(self.nodes)
         self.boundaryTol = float(boundaryTol) if boundaryTol is not None else max(char * 1e-6, 1e-12)
         self.hullTol = float(hullTol) if hullTol is not None else max(char * 1e-9, 1e-12)
-        self.sampler = sampler
+        self.sampler = sampler if sampler is not None else randomSampler()
         self._hull: ConvexHull | None = None
         self._allBoundaryNodes = mergeBoundaryMap(self.boundaryNodes, dim=self.dim)
         self._boundaryTrees: dict[str, cKDTree] = {}
@@ -47,11 +72,59 @@ class meshDomain(baseDomain):
 
     @classmethod
     def fromMeshIr(cls, ir: meshIr, **kwargs):
-        return cls(ir.nodes, ir.boundaryNodes, **kwargs)
+        return cls(ir.nodes, ir.boundaryNodes, boundaryFaces=ir.boundaryFaces, **kwargs)
+
+    def boundaryUsesFacets(self, boundaryName: str | None) -> bool:
+        if boundaryName is not None:
+            return boundaryName in self._facetPatch
+        return bool(self._facetPatch)
+
+    def _facetAndPointBoundaryNames(self) -> tuple[list[str], list[str]]:
+        facetNames = sorted(self._facetPatch.keys())
+        pointOnlyNames = [name for name in self.boundaryNames if name not in self._facetPatch]
+        return facetNames, pointOnlyNames
+
+    def _splitBoundaryCounts(self, n: int) -> tuple[list[str], list[str], np.ndarray]:
+        facetNames, pointOnlyNames = self._facetAndPointBoundaryNames()
+        measures = [self._facetPatch[name].totalArea for name in facetNames]
+        measures.extend(float(self.boundaryNodes[name].shape[0]) for name in pointOnlyNames)
+        w = np.asarray(measures, dtype=float)
+        if float(np.sum(w)) <= 0:
+            raise ValueError('no boundary measure for merged sampling')
+        return facetNames, pointOnlyNames, splitSampleCounts(n, w / np.sum(w))
+
+    def _activeSampler(self, sampler=None):
+        return self.sampler if sampler is None else sampler
+
+    def samplePointsOnBoundaryFacets(self, n: int, boundaryName: str | None) -> np.ndarray:
+        if boundaryName is not None:
+            if boundaryName not in self._facetPatch:
+                raise KeyError(boundaryName)
+            pts, _ = self._facetPatch[boundaryName].samplePoints(n)
+            return pts
+        facetNames, pointOnlyNames, counts = self._splitBoundaryCounts(n)
+        parts: list[np.ndarray] = []
+        i = 0
+        for nm in facetNames:
+            c = int(counts[i])
+            i += 1
+            if c <= 0:
+                continue
+            pts, _ = self._facetPatch[nm].samplePoints(c)
+            parts.append(pts)
+        for nm in pointOnlyNames:
+            c = int(counts[i])
+            i += 1
+            if c <= 0:
+                continue
+            parts.append(sampleRows(self.boundaryNodes[nm], c))
+        if not parts:
+            return np.empty((0, self.dim), dtype=float)
+        return np.vstack(parts)
 
     @property
     def boundaryNames(self) -> list[str]:
-        return list(self.boundaryNodes.keys())
+        return sorted(set(self.boundaryNodes.keys()) | set(self._facetPatch.keys()))
 
     @property
     def regions(self) -> list[geometryRegion]:
@@ -105,38 +178,30 @@ class meshDomain(baseDomain):
 
     def boundaryNormal(self, x: np.ndarray, boundaryName: str | None = None) -> np.ndarray:
         x = as2dFloatArray(x, dim=self.dim)
+        if boundaryName is not None and boundaryName in self._facetPatch:
+            return self._facetPatch[boundaryName].normalsAtPoints(x)
         return self.boundaryNormalStrategy.boundaryNormal(self, x, boundaryName=boundaryName)
 
     def sampleInterior(self, n: int, sampler=None) -> np.ndarray:
-        if sampler is None:
-            sampler = self.sampler
-        return sampler.sampleInterior(self, n)
+        return self._activeSampler(sampler).sampleInterior(self, n)
 
     def sampleBoundary(self, n: int, boundaryName: str | None = None, sampler=None) -> np.ndarray:
-        if sampler is None:
-            sampler = self.sampler
-        return sampler.sampleBoundary(self, n, boundaryName=boundaryName)
+        return self._activeSampler(sampler).sampleBoundary(self, n, boundaryName=boundaryName)
 
     def sampleMixedBatch(self, sampleCountByRegion: dict[str, int], sampler=None):
-        if sampler is None:
-            sampler = self.sampler
-        return sampler.sampleMixedBatch(self, sampleCountByRegion)
+        return self._activeSampler(sampler).sampleMixedBatch(self, sampleCountByRegion)
 
     def sampleBoundaryMixedBatch(self, sampleCountByBoundary: dict[str, int], sampler=None):
-        if sampler is None:
-            sampler = self.sampler
-        return sampler.sampleBoundaryMixedBatch(self, sampleCountByBoundary)
+        return self._activeSampler(sampler).sampleBoundaryMixedBatch(self, sampleCountByBoundary)
 
     def sampleWeightedBatch(self, n: int, regionWeights: dict[str, float] | None = None, sampler=None):
-        if sampler is None:
-            sampler = self.sampler
+        sampler = self._activeSampler(sampler)
         if not hasattr(sampler, 'sampleWeightedBatch'):
             raise AttributeError('sampler does not support sampleWeightedBatch')
         return sampler.sampleWeightedBatch(self, n, regionWeights=regionWeights)
 
     def sampleBoundaryWeightedBatch(self, n: int, boundaryWeights: dict[str, float] | None = None, sampler=None):
-        if sampler is None:
-            sampler = self.sampler
+        sampler = self._activeSampler(sampler)
         if not hasattr(sampler, 'sampleBoundaryWeightedBatch'):
             raise AttributeError('sampler does not support sampleBoundaryWeightedBatch')
         return sampler.sampleBoundaryWeightedBatch(self, n, boundaryWeights=boundaryWeights)

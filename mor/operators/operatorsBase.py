@@ -45,8 +45,8 @@ class operatorBase(ABC):
         return sumOperator([self, (other * -1.0)], backendName=self.backendName)
 
     def __mul__(self, scalar: float) -> 'operatorBase':
-        # TODO: Implement scaledOperator for efficient scalar multiplication
-        return self
+        from .scaled import scaledOperator
+        return scaledOperator(self, scalar, backendName=self.backendName)
 
     @property
     def backendName(self) -> str | None:

@@ -10,7 +10,7 @@ from .meshDomain import meshDomain
 from .geometryRegion import geometryRegion
 from .sampleBatch import sampleBatch
 from .meshIr import meshIr
-from .converters import meshIoToIr, mshToIr, inpToIr
+from .converters import meshFileToIr, meshIoToIr, mshToIr, inpToIr
 from . import samplers
 from . import utils
 
@@ -27,6 +27,7 @@ __all__ = [
     'geometryRegion',
     'sampleBatch',
     'meshIr',
+    'meshFileToIr',
     'meshIoToIr',
     'mshToIr',
     'inpToIr',

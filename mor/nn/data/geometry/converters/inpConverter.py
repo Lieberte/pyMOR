@@ -1,6 +1,5 @@
 from pathlib import Path
-import meshio
-from .meshioCommon import meshIoToIr
+from .meshioCommon import meshFileToIr
 from ..meshIr import meshIr
 
 def inpToIr(
@@ -13,5 +12,4 @@ def inpToIr(
     opts: dict = dict(meshioReadKwargs or {})
     if opts.get('file_format') is None and resolved.suffix.lower() == '.inp':
         opts['file_format'] = 'abaqus'
-    mesh = meshio.read(resolved, **opts)
-    return meshIoToIr(mesh, **kwargs)
+    return meshFileToIr(resolved, meshioReadKwargs=opts, **kwargs)

@@ -10,7 +10,7 @@ class weightedBoundarySampler(baseSampler):
         return sampleRows(domain.interiorPoints(), n)
 
     def sampleBoundary(self, domain, n: int, boundaryName: str | None = None) -> np.ndarray:
-        return sampleRows(domain.boundaryPoints(boundaryName=boundaryName), n)
+        return self._sampleBoundaryPoints(domain, n, boundaryName=boundaryName)
 
     def sampleBoundaryWeightedBatch(self, domain, n: int, boundaryWeights: dict[str, float] | None = None):
         activeBoundaryWeights = dict(self.boundaryWeights)
