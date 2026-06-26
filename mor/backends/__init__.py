@@ -6,6 +6,6 @@ from . import scipyBackend  # default backend (numpy/scipy only, always availabl
 try:
     from . import torchBackend  # optional; requires torch
 except ImportError:
-    torchBackend = None  # torch not installed — scipy backend remains usable
+    torchBackend = None  # torch not installed; scipy backend remains usable
 
 __all__ = ['backendRegistry', 'backendBase', 'registerBackend']

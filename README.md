@@ -6,7 +6,7 @@ variants) with neural-network reductors (autoencoders / VAE / CAE, RNN/LSTM/GRU/
 SSM/Transformer dynamics learning, PINN) and a mesh-based geometry engine
 for `.inp` / `.msh` conversion and sampling.
 
-> Local/research build only — not published to PyPI. The distribution name is
+> Local/research build only - not published to PyPI. The distribution name is
 > `mor`; the import name is `mor`.
 
 ## Install (editable)
@@ -14,7 +14,7 @@ for `.inp` / `.msh` conversion and sampling.
 ```bash
 pip install -e .            # classical core (numpy + scipy)
 pip install -e ".[all]"     # + torch, meshio, scikit-learn
-pip install -e ".[dev]"     # + pytest, meshio, matplotlib (for running tests)
+pip install -e ".[dev]"     # + pytest and optional deps needed by tests
 ```
 
 Requires Python **>= 3.10** (the codebase uses `X | None` type hints).
@@ -37,7 +37,9 @@ pytest tests/ -q
 ```
 
 `tests/nn/data/geometry/` holds pure unit tests for the geometry utilities and
-samplers.
+samplers. One test is marked `xfail` for a known `sampleBatch.concat` normals
+preservation bug; it should be flipped to a normal assertion when that geometry
+fix lands.
 
 ## Layout
 

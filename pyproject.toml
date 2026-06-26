@@ -36,6 +36,9 @@ sklearn = ["scikit-learn>=1.4"]
 # Everything needed to run the test suite.
 dev = [
     "pytest>=8.0",
+    "torch>=2.0",
+    "meshio>=5.0",
+    "scikit-learn>=1.4",
 ]
 # Convenience: pull in all runtime extras at once.
 all = [

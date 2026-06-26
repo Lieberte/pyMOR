@@ -1,4 +1,4 @@
-"""mor — a pyMOR-style model order reduction toolkit.
+"""mor - a pyMOR-style model order reduction toolkit.
 
 Importing the top-level package makes the *classical* MOR core available
 (registries, operators, models, solvers, reductors) and registers the default
