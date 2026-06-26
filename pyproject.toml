@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mor"
+version = "0.1.0"
+description = "A pyMOR-style model order reduction toolkit (classical MOR + neural-network reductors)."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Guanyonghao" }]
+license = { text = "Proprietary" }
+keywords = ["model order reduction", "mOR", "pod", "balanced truncation", "pinn", "autoencoder"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
+# Classical MOR core only depends on numpy + scipy.
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+# Neural-network reductors / PINN / dynamics learning.
+torch = ["torch>=2.0"]
+# Mesh-based geometry (.inp / .msh) converters.
+mesh = ["meshio>=5.0"]
+# Optional data-driven helpers (e.g. some nn utilities).
+sklearn = ["scikit-learn>=1.4"]
+# Everything needed to run the test suite.
+dev = [
+    "pytest>=8.0",
+]
+# Convenience: pull in all runtime extras at once.
+all = [
+    "torch>=2.0",
+    "meshio>=5.0",
+    "scikit-learn>=1.4",
+]
+
+[project.urls]
+Repository = "https://github.com/Lieberte/pyMOR.git"
+
+[tool.setuptools.packages.find]
+include = ["mor*"]
+exclude = ["tests*", "applicationTests*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q"
