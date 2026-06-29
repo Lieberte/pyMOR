@@ -183,6 +183,10 @@ class backendBase(ABC):
             return getattr(data, 'sum')(axis=axis)
 
         @staticmethod
+        def max(data: Any, axis: int | None = None) -> Any:
+            return getattr(data, 'max')(axis=axis)
+
+        @staticmethod
         def cumsum(data: Any, axis: int | None = None) -> Any:
             return getattr(data, 'cumsum')(axis=axis)
 

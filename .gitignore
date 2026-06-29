@@ -1,6 +1,8 @@
 /.qoder/
 /temp/
 /.cursor/
+/.claude/
+/.worktrees/
 /applicationTests/
 /.idea/
 /performanceTests/

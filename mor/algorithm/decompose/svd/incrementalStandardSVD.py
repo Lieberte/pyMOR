@@ -12,7 +12,7 @@ class incrementalStandardSVD(svd):
         self.Vh = None
 
     def decompose(self, xOperator: Any, rank: int | None = None, tol: float | None = None) -> Tuple[Any, Any, Any]:
-        backend, newData = self.localBackend, xOperator.data
+        backend, newData = self.localBackend, xOperator.toBackendData()
         if self.U is None:
             self.U, self.S, self.Vh = backend.decomposition.svdDense(newData, fullMatrices=False)
         else:
