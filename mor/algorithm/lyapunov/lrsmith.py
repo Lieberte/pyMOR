@@ -39,7 +39,9 @@ class lrsmith(backendLyapunov):
         applied = A.apply(z, trans=trans)
         if E is None:
             return applied
-        eData = self.localBackend.linalg.transpose(E.data) if trans else E.data
+        eData = E.toBackendData()
+        if trans:
+            eData = self.localBackend.linalg.transpose(eData)
         return self.localBackend.linalg.solve(eData, applied)
 
     def discreteLyapunovResidualNorm(self, u: Any, v: Any, w: Any) -> float:

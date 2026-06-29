@@ -35,6 +35,18 @@ def test_lrsmith_scipy_accepts_transpose_contract():
     assert z.left.shape == (3, 2)
 
 
+def test_lrsmith_scipy_accepts_descriptor_operator_contract():
+    A = matrixOperator(np.eye(3), backendName='scipy')
+    E = matrixOperator(np.eye(3), backendName='scipy') * 1.0
+    B = matrixOperator(np.ones((3, 1)), backendName='scipy')
+    smith = algorithmRegistry.get(category='lyapunov', variant='lrsmith', backendName='scipy', maxIter=1)
+
+    z = smith.solve(A, E, B)
+
+    assert isinstance(z, lowRankOperator)
+    assert z.left.shape == (3, 1)
+
+
 def test_low_rank_operator_rejects_mismatched_rank_factors_early():
     left = np.zeros((6, 2))
     right = np.zeros((6, 3))
