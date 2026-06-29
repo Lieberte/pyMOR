@@ -3,6 +3,9 @@
 /.cursor/
 /.claude/
 /.worktrees/
+/build/
+/dist/
+/*.egg-info/
 /applicationTests/
 /.idea/
 /performanceTests/

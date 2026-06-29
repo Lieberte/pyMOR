@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mor"
+version = "0.1.0"
+description = "A pyMOR-style model order reduction toolkit."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{ name = "Guanyonghao" }]
+license = { text = "Proprietary" }
+keywords = ["model order reduction", "mor", "pod", "balanced truncation", "pinn"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+dependencies = [
+    "numpy>=2.0",
+    "scipy>=1.13",
+]
+
+[project.optional-dependencies]
+torch = ["torch>=2.0"]
+mesh = ["meshio>=5.0"]
+sklearn = ["scikit-learn>=1.4"]
+dev = [
+    "pytest>=8.0",
+    "torch>=2.0",
+    "meshio>=5.0",
+    "scikit-learn>=1.4",
+]
+all = [
+    "torch>=2.0",
+    "meshio>=5.0",
+    "scikit-learn>=1.4",
+]
+
+[project.urls]
+Repository = "https://github.com/Lieberte/pyMOR.git"
+
+[tool.setuptools.packages.find]
+include = ["mor*"]
+exclude = ["tests*", "applicationTests*"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-q"
