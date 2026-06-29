@@ -9,14 +9,20 @@ class lowRankOperator(operatorBase):
         self._validate()
 
     def _validate(self):
+        if len(self.left.shape) != 2:
+            raise ValueError("Left factor must be a 2D array")
         if self.right is not None:
-            if self.left.shape[0] != self.right.shape[0]:
-                raise ValueError("Left and right factors must have same number of rows")
+            if len(self.right.shape) != 2:
+                raise ValueError("Right factor must be a 2D array")
+            if self.left.shape[1] != self.right.shape[1]:
+                raise ValueError("Left and right factors must have same number of columns")
         
     @property
     def shape(self) -> Tuple[int, ...]:
-        n = self.left.shape[0]
-        return (n, n)
+        if self.right is None:
+            n = self.left.shape[0]
+            return (n, n)
+        return (self.left.shape[0], self.right.shape[0])
 
     @property
     def dtype(self) -> Any:
@@ -33,7 +39,7 @@ class lowRankOperator(operatorBase):
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        xData = x.data if isinstance(x, matrixOperator) else backend.array.toArray(x)
+        xData = x.toBackendData() if isinstance(x, operatorBase) else backend.array.toArray(x)
         if self.right is None:
             tmp = backend.linalg.dot(backend.linalg.transpose(self.left), xData)
             return backend.linalg.dot(self.left, tmp)
@@ -54,6 +60,12 @@ class lowRankOperator(operatorBase):
             return l_np @ l_np.T
         r_np = backend.array.toNumpy(self.right)
         return l_np @ r_np.T
+
+    def toBackendData(self) -> Any:
+        backend = self.localBackend
+        if self.right is None:
+            return backend.linalg.dot(self.left, backend.linalg.transpose(self.left))
+        return backend.linalg.dot(self.left, backend.linalg.transpose(self.right))
 
     def __repr__(self) -> str:
         kind = "Symmetric" if self.right is None else "General"

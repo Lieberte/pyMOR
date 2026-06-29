@@ -175,6 +175,10 @@ class scipyBackend(backendBase):
             return np.trace(a)
 
         @staticmethod
+        def max(data, axis=None):
+            return np.max(data, axis=axis)
+
+        @staticmethod
         def abs(data):
             return np.abs(data)
 
