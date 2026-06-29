@@ -42,6 +42,13 @@ class sumOperator(operatorBase):
             res = res + op.toNumpy()
         return res
 
+    def toBackendData(self) -> Any:
+        backend = self.localBackend
+        data = backend.array.toArray(self.operators[0].toBackendData())
+        for op in self.operators[1:]:
+            data = data + backend.array.toArray(op.toBackendData())
+        return data
+
     def __mul__(self, scalar: float) -> 'sumOperator':
         return sumOperator([op * scalar for op in self.operators], backendName=self.backendName)
 

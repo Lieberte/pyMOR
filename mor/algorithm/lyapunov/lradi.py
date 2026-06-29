@@ -18,6 +18,8 @@ class lradi(backendLyapunov):
 
     def solve(self, A: operatorBase, E: operatorBase | None, B: operatorBase, trans: bool = False) -> Any:
         backend, n, bData = self.localBackend, A.shape[0], B.toBackendData()
+        if trans:
+            bData = backend.linalg.transpose(bData)
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))    
         tol, maxIter, shiftOpts = self.options.get('tol', 1e-10), self.options.get('maxIter', 500), self.options.get('shiftOptions')
         if not isinstance(shiftOpts, shiftComputationOptions): shiftOpts = shiftComputationOptions(**(shiftOpts if isinstance(shiftOpts, dict) else {}))

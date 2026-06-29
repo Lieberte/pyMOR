@@ -18,4 +18,9 @@ def selectLyapunovAlgorithm(**kwargs) -> str:
             return 'sign'
         return 'bartelsStewart'
     else:
-        return 'discreteHr'
+        raise NotImplementedError(
+            "Dense discrete Lyapunov equations are not implemented. "
+            "Only the sparse path (lrsmith) supports the discrete case; "
+            "use a sparse descriptor or implement a dense discrete solver "
+            "(e.g. a discrete Bartels-Stewart variant)."
+        )

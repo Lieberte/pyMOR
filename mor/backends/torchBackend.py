@@ -206,6 +206,11 @@ class torchBackend(backendBase):
             return torch.trace(a)
 
         @staticmethod
+        def max(data, axis=None):
+            if not isinstance(data, torch.Tensor): return np.max(data, axis=axis)
+            return torch.max(data) if axis is None else torch.max(data, dim=axis).values
+
+        @staticmethod
         def abs(data):
             if not isinstance(data, torch.Tensor): return abs(data)
             return torch.abs(data)
