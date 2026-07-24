@@ -16,12 +16,9 @@ class incrementalFastSVD(svd):
         if self.U is None:
             self.U, self.S, self.Vh = backend.decomposition.svdDense(newData, fullMatrices=False)
         else:
-            Ut = backend.linalg.transpose(backend.linalg.conj(self.U))
-            m = backend.linalg.dot(Ut, newData)
-            combinedS = backend.array.hstack([backend.array.diag(self.S), m])
-            _, sHat, vhHat = backend.decomposition.svdDense(combinedS, fullMatrices=False)
-            self.S = sHat
-            self.Vh = vhHat
+            currentData = backend.linalg.dot(self.U, backend.linalg.dot(backend.array.diag(self.S), self.Vh))
+            combined = backend.array.hstack([currentData, newData])
+            self.U, self.S, self.Vh = backend.decomposition.svdDense(combined, fullMatrices=False)
         r = truncate(self.S, rank=rank, tol=tol, backend=backend)
-        self.S, self.Vh = self.S[:r], self.Vh[:r, :]
+        self.U, self.S, self.Vh = self.U[:, :r], self.S[:r], self.Vh[:r, :]
         return self.U, self.S, self.Vh

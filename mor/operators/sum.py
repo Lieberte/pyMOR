@@ -27,6 +27,23 @@ class sumOperator(operatorBase):
         return all(op.isSparse for op in self.operators)
 
     @property
+    def structureTags(self) -> frozenset[str]:
+        tags = {'composed'}
+        tags.add('sparse' if self.isSparse else 'dense')
+        if all(op.isDiagonal for op in self.operators):
+            tags.add('diagonal')
+        if any(op.isLowRank for op in self.operators):
+            tags.add('contains_low_rank')
+        return frozenset(tags)
+
+    @property
+    def materializationCost(self) -> int | None:
+        costs = [op.materializationCost for op in self.operators]
+        if any(cost is None for cost in costs):
+            return None
+        return int(sum(costs))
+
+    @property
     def T(self) -> 'sumOperator':
         return sumOperator([op.T for op in self.operators], backendName=self.backendName)
 

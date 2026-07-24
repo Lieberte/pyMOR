@@ -7,9 +7,32 @@ class matrixOperator(operatorBase):
         # TODO: check backend fmt first
         self.data = self.localBackend.array.toArray(data)
         self._isSparse = self._detectSparsity()
+        self._isDiagonal = self._detectDiagonal()
 
     def _detectSparsity(self) -> bool:
         return self.localBackend.array.isSparse(self.data)
+
+    def _detectDiagonal(self) -> bool:
+        shape = getattr(self.data, 'shape', ())
+        if len(shape) != 2 or shape[0] != shape[1]:
+            return False
+        if type(self.data).__module__.startswith('torch'):
+            return False
+        try:
+            from scipy.sparse import issparse
+            if issparse(self.data):
+                off_diagonal = self.data.copy()
+                off_diagonal.setdiag(0)
+                off_diagonal.eliminate_zeros()
+                return off_diagonal.nnz == 0
+        except Exception:
+            pass
+        try:
+            import numpy as np
+            array = self.localBackend.array.toNumpy(self.data)
+            return bool(np.allclose(array, np.diag(np.diag(array))))
+        except Exception:
+            return False
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -22,6 +45,14 @@ class matrixOperator(operatorBase):
     @property
     def isSparse(self) -> bool:
         return self._isSparse
+
+    @property
+    def structureTags(self) -> frozenset[str]:
+        tags = {'sparse'} if self.isSparse else {'dense'}
+        tags.add('matrix')
+        if self._isDiagonal:
+            tags.add('diagonal')
+        return frozenset(tags)
 
     @property
     def T(self) -> 'matrixOperator':
