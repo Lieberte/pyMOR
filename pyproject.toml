@@ -51,3 +51,6 @@ exclude = ["tests*", "applicationTests*"]
 minversion = "8.0"
 testpaths = ["tests"]
 addopts = "-q"
+markers = [
+    "benchmark: lightweight characterization benchmarks that collect metrics without runtime gating",
+]

@@ -8,24 +8,35 @@ from .base import backendLyapunov
 
 @dataclass(frozen=True, slots=True)
 class shiftComputationOptions:
-    initMaxIter, subspaceColumns = 20, 6
+    initMaxIter: int = 20
+    subspaceColumns: int = 6
+    maxShifts: int = 20
 
 @registerAlgorithm('lyapunov', 'lradi')
 class lradi(backendLyapunov):
     # TODO: Implement more robust shift selection (e.g., Penzl's heuristic) for stiff systems
     def __init__(self, backendName: str | None = None, **kwargs):
         self.localBackend, self.options = backendRegistry.get(backendName), kwargs
+        self.lastResidualHistory: list[float] = []
+        self.lastIterations = 0
+        self.lastShifts: Any = None
 
     def solve(self, A: operatorBase, E: operatorBase | None, B: operatorBase, trans: bool = False) -> Any:
         backend, n, bData = self.localBackend, A.shape[0], B.toBackendData()
         if trans:
             bData = backend.linalg.transpose(bData)
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))    
-        tol, maxIter, shiftOpts = self.options.get('tol', 1e-10), self.options.get('maxIter', 500), self.options.get('shiftOptions')
+        tol = self.options.get('tol', 1e-10)
+        maxIter = self.options.get('maxIter', 500)
+        compressionColumns = self.options.get('compressionColumns', 32)
+        shiftOpts = self.options.get('shiftOptions')
         if not isinstance(shiftOpts, shiftComputationOptions): shiftOpts = shiftComputationOptions(**(shiftOpts if isinstance(shiftOpts, dict) else {}))
         shifts, zColumns, W, j, jShift = self.computeInitialShifts(A, E, bData, shiftOpts), [], backend.array.copy(bData), 0, 0
+        shifts = shifts[:shiftOpts.maxShifts]
+        self.lastShifts = shifts
         res = backend.specialized.gramMatrixNorm(W, backend)
         bTol = res * tol
+        self.lastResidualHistory = [float(res)]
         while res > bTol and j < maxIter:
             sigma = shifts[jShift]
             sigmaReal, sigmaImag = backend.array.real(sigma), backend.array.imag(sigma)
@@ -48,10 +59,16 @@ class lradi(backendLyapunov):
                 j += 2
             jShift += 1
             res = backend.specialized.gramMatrixNorm(W, backend)
+            self.lastResidualHistory.append(float(res))
             if jShift >= backend.array.size(shifts): shifts, jShift = self.updateShifts(A, E, vData, zColumns, shifts, shiftOpts, trans=trans), 0
-            if len(zColumns) > 4:
+            if jShift == 0:
+                shifts = shifts[:shiftOpts.maxShifts]
+                self.lastShifts = shifts
+            totalColumns = sum(col.shape[1] for col in zColumns)
+            if totalColumns > compressionColumns:
                 Z_temp = self.compressFactor(backend.array.hstack(zColumns), n)
                 zColumns = [Z_temp]
+        self.lastIterations = j
         from mor.operators.lowRank import lowRankOperator
         return lowRankOperator(backend.array.hstack(zColumns) if zColumns else backend.array.zeros((n, 0), dtype=A.dtype), backendName=backend.name)
 
@@ -70,10 +87,11 @@ class lradi(backendLyapunov):
                     linearSolver = algorithmRegistry.get(category='linear', variant='shifted', backendName=backend.name, A=A, E=E, shift=alpha, trans=False)
                     vData = linearSolver.solve(A, bData, E=E, shift=alpha, trans=False)
                     if backend.array.all(backend.array.isfinite(vData)): expanded.append(vData)
-                except Exception: continue
+                except Exception:
+                    continue
             if len(expanded) <= 1: break
             shifts = projectAndGetShifts(backend.array.hstack(expanded))
-            if backend.array.size(shifts) > 0: return shifts
+            if backend.array.size(shifts) > 0: return shifts[:options.maxShifts]
         return self.computeHeuristicShifts(A, E)
 
     def filterStableShifts(self, shifts: Any, tol: float = 1e-14, selectPositiveImag: bool = False) -> Any:
@@ -89,7 +107,8 @@ class lradi(backendLyapunov):
             try:
                 sh = self.filterStableShifts(backend.eigen.eigvalsGeneralized(A.toBackendData(), E.toBackendData() if E is not None else backend.array.eye(n, dtype=A.dtype)))
                 if backend.array.size(sh) > 0: return sh[backend.array.argsort(backend.array.abs(sh))][:20]
-            except Exception: pass
+            except Exception:
+                pass
         return backend.array.array([-1e-3, -1e-2, -1e-1, -1.0, -10.0], dtype=A.dtype)
 
     def updateShifts(self, A: operatorBase, E: operatorBase | None, vData: Any, zColumns: list[Any], prevShifts: Any, options: shiftComputationOptions, trans: bool = False) -> Any:

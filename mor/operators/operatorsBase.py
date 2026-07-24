@@ -36,6 +36,49 @@ class operatorBase(ABC):
     def toBackendData(self) -> Any:
         pass
 
+    @property
+    def operatorKind(self) -> str:
+        return type(self).__name__
+
+    @property
+    def structureTags(self) -> frozenset[str]:
+        tags = {'sparse'} if self.isSparse else {'dense'}
+        return frozenset(tags)
+
+    @property
+    def isDiagonal(self) -> bool:
+        return 'diagonal' in self.structureTags
+
+    @property
+    def isComposed(self) -> bool:
+        return 'composed' in self.structureTags
+
+    @property
+    def isLowRank(self) -> bool:
+        return 'low_rank' in self.structureTags
+
+    @property
+    def materializationCost(self) -> int | None:
+        shape = self.shape
+        if len(shape) != 2:
+            return None
+        return int(shape[0] * shape[1])
+
+    @property
+    def metadata(self) -> dict[str, Any]:
+        return {
+            'kind': self.operatorKind,
+            'shape': self.shape,
+            'dtype': self.dtype,
+            'backendName': self.backendName,
+            'isSparse': self.isSparse,
+            'structureTags': sorted(self.structureTags),
+            'isDiagonal': self.isDiagonal,
+            'isComposed': self.isComposed,
+            'isLowRank': self.isLowRank,
+            'materializationCost': self.materializationCost,
+        }
+
     def __add__(self, other: Any) -> 'operatorBase':
         from .sum import sumOperator
         return sumOperator([self, other], backendName=self.backendName)

@@ -33,6 +33,16 @@ class lowRankOperator(operatorBase):
         return False
 
     @property
+    def structureTags(self) -> frozenset[str]:
+        return frozenset({'dense', 'low_rank', 'symmetric_low_rank'} if self.right is None else {'dense', 'low_rank'})
+
+    @property
+    def materializationCost(self) -> int:
+        if self.right is None:
+            return int(self.left.shape[0] * self.left.shape[1])
+        return int((self.left.shape[0] + self.right.shape[0]) * self.left.shape[1])
+
+    @property
     def T(self) -> 'lowRankOperator':
         if self.right is None: return self
         return lowRankOperator(self.right, self.left, backendName=self.backendName)

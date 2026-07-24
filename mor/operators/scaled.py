@@ -21,6 +21,14 @@ class scaledOperator(operatorBase):
         return self.operator.isSparse
 
     @property
+    def structureTags(self) -> frozenset[str]:
+        return frozenset(set(self.operator.structureTags) | {'scaled'})
+
+    @property
+    def materializationCost(self) -> int | None:
+        return self.operator.materializationCost
+
+    @property
     def T(self) -> 'scaledOperator':
         return scaledOperator(self.operator.T, self.scalar, backendName=self.backendName)
 

@@ -9,9 +9,13 @@ class bartelsStewart(backendLyapunov):
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False) -> Any:
         backend = self.localBackend
         Q = self.prepareQ(B, trans=trans)
-        aData = backend.linalg.transpose(A.data) if trans else A.data
+        aData = A.toBackendData()
+        if trans:
+            aData = backend.linalg.transpose(aData)
         if E is not None:
-            eData = backend.linalg.transpose(E.data) if trans else E.data
+            eData = E.toBackendData()
+            if trans:
+                eData = backend.linalg.transpose(eData)
             X = backend.linalg.solveGeneralizedContinuousLyapunov(aData, eData, Q)
         else:
             X = backend.linalg.solveContinuousLyapunov(aData, Q)

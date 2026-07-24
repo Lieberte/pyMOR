@@ -46,7 +46,12 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def solveGeneralizedContinuousLyapunov(A, E, Q):
-            return linalg.solve_generalized_continuous_lyapunov(A, E, -Q)
+            if hasattr(linalg, 'solve_generalized_continuous_lyapunov'):
+                return linalg.solve_generalized_continuous_lyapunov(A, E, -Q)
+            eInvA = linalg.solve(E, A)
+            eInvQ = linalg.solve(E, Q)
+            qTilde = linalg.solve(E, eInvQ.T).T
+            return linalg.solve_continuous_lyapunov(eInvA, -qTilde)
 
         @staticmethod
         def robustSqrtFactor(A, tol=None, name="Matrix"):
@@ -160,10 +165,12 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def toNumpy(data):
-            return np.asarray(data)
+            return data.toarray() if issparse(data) else np.asarray(data)
 
         @staticmethod
         def toArray(data):
+            if issparse(data):
+                return data
             return np.asarray(data)
 
         @staticmethod

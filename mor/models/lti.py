@@ -15,9 +15,15 @@ class ltiModel(modelBase):
         self._validate()
 
     def _validate(self):
+        if len(self.A.shape) != 2:
+            raise ValueError("A must be a 2D square operator")
         n = self.A.shape[0]
         if self.A.shape[1] != n: raise ValueError("A must be square")
+        if len(self.B.shape) not in (1, 2):
+            raise ValueError("B must be a vector or a 2D operator")
         if self.B.shape[0] != n: raise ValueError("B must have same rows as A")
+        if len(self.C.shape) != 2:
+            raise ValueError("C must be a 2D operator")
         if self.C.shape[1] != n: raise ValueError("C must have same columns as A")
         if self.E is not None and self.E.shape != (n, n): raise ValueError("E must have same shape as A")
 
@@ -27,7 +33,7 @@ class ltiModel(modelBase):
 
     @property
     def inputDim(self) -> int:
-        return self.B.shape[1]
+        return self.B.shape[1] if len(self.B.shape) > 1 else 1
 
     @property
     def outputDim(self) -> int:
