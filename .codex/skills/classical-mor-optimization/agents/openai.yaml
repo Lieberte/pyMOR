@@ -1,0 +1,4 @@
+interface:
+  display_name: "Classical MOR Optimization"
+  short_description: "Optimize classical MOR algorithms with operator/backend characterization."
+  default_prompt: "Continue the classical MOR optimization plan with regression tests, characterization reports, and auto-dispatch evidence."
