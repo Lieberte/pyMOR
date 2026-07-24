@@ -39,13 +39,19 @@ class balancedTruncationReductor:
         self.updateOptions(model.A, model.B, model.C, model.E, isContinuous=isContinuous)
         backend = self.localBackend
         offset, n = self.options.get('offset', 1e-08), model.A.shape[0]
-        if model.E is not None: aRegData = model.A.data - offset * model.E.data
-        else: aRegData = model.A.data - offset * backend.array.eye(n, dtype=model.A.dtype)
+        aData = model.A.toBackendData()
+        bData = model.B.toBackendData()
+        cData = model.C.toBackendData()
+        eData = model.E.toBackendData() if model.E is not None else None
+        if eData is not None:
+            aRegData = aData - offset * eData
+        else:
+            aRegData = aData - offset * backend.array.eye(n, dtype=model.A.dtype)
         aNorm = backend.linalg.norm(aRegData)
         scalingFactor = float(aNorm) if aNorm > 1e6 else 1.0
         AScaled = matrixOperator(aRegData / scalingFactor, backendName=backend.name)
-        BScaled = matrixOperator(model.B.data / backend.array.sqrt(scalingFactor), backendName=backend.name)
-        CScaled = matrixOperator(model.C.data / backend.array.sqrt(scalingFactor), backendName=backend.name)
+        BScaled = matrixOperator(bData / backend.array.sqrt(scalingFactor), backendName=backend.name)
+        CScaled = matrixOperator(cData / backend.array.sqrt(scalingFactor), backendName=backend.name)
         EScaled = model.E
         ZcRaw = self.lyapunovSolver.solve(AScaled, EScaled, BScaled)
         ZoRaw = self.lyapunovSolver.solve(AScaled.T, EScaled.T if EScaled else None, CScaled.T)
@@ -55,7 +61,7 @@ class balancedTruncationReductor:
         Zo_data = backend.array.toArray(Zo)
         Zc_data = backend.array.toArray(Zc)
         M = backend.linalg.dot(backend.linalg.transpose(Zo_data), Zc_data)
-        if hasattr(M, 'to') and hasattr(model.A.data, 'dtype'): M = M.to(model.A.data.dtype)
+        if hasattr(M, 'to') and hasattr(aData, 'dtype'): M = M.to(aData.dtype)
         M_op = matrixOperator(M, backendName=backend.name)
         U, S, Vt = self.svdAlgorithm.decompose(M_op, rank=order, tol=maxError)
         hsv, order = S, backend.array.size(S)
@@ -64,15 +70,14 @@ class balancedTruncationReductor:
         vProj = backend.linalg.dot(Zc, backend.linalg.dot(backend.linalg.transpose(Vt), srInv))
         wProj = backend.linalg.dot(Zo, backend.linalg.dot(U, srInv))
         wProjT = backend.linalg.transpose(wProj)
-        bData, cData = model.B.data, model.C.data
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))
         if backend.array.ndim(cData) == 1: cData = backend.array.reshape(cData, (1, -1))
-        if hasattr(bData, 'to') and hasattr(model.A.data, 'dtype'):
-            bData, cData = bData.to(model.A.data.dtype), cData.to(model.A.data.dtype)
+        if hasattr(bData, 'to') and hasattr(aData, 'dtype'):
+            bData, cData = bData.to(aData.dtype), cData.to(aData.dtype)
         Ar, Br, Cr = backend.linalg.dot(wProjT, model.A.apply(vProj)), backend.linalg.dot(wProjT, bData), backend.linalg.dot(cData, vProj)
-        nOut, nIn = model.C.shape[0], model.B.shape[1] if backend.array.ndim(model.B.data) > 1 else 1
-        Dr = model.D.data if model.D is not None else backend.array.zeros((nOut, nIn), dtype=model.A.dtype)
-        if hasattr(Dr, 'to') and hasattr(model.A.data, 'dtype'): Dr = Dr.to(model.A.data.dtype)
+        nOut, nIn = model.C.shape[0], model.B.shape[1] if backend.array.ndim(bData) > 1 else 1
+        Dr = model.D.toBackendData() if model.D is not None else backend.array.zeros((nOut, nIn), dtype=model.A.dtype)
+        if hasattr(Dr, 'to') and hasattr(aData, 'dtype'): Dr = Dr.to(aData.dtype)
         Er = backend.linalg.dot(wProjT, model.E.apply(vProj)) if model.E is not None else backend.linalg.dot(wProjT, vProj)
         return reducedSystem(
             isContinuous=isContinuous, 

@@ -7,7 +7,7 @@ class backendLyapunov:
         self.localBackend, self.options = backendRegistry.get(backendName), kwargs
 
     def prepareQ(self, B: matrixOperator, trans: bool = False):
-        backend, bData = self.localBackend, B.data
+        backend, bData = self.localBackend, B.toBackendData()
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))
         if trans: return backend.linalg.dot(backend.linalg.transpose(bData), bData)
         return backend.linalg.dot(bData, backend.linalg.transpose(bData))

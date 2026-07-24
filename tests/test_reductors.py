@@ -41,3 +41,23 @@ def test_balanced_truncation_end_to_end(rng):
     assert len(rom.hsv) == 5
     assert all(h > 0 for h in rom.hsv)
     assert rom.solverInfo['lyapunov'] == 'bartelsStewart'
+
+
+def test_balanced_truncation_accepts_composed_operators(rng):
+    n = 8
+    baseA = -np.eye(n) + 0.05 * rng.standard_normal((n, n))
+    baseA = (baseA + baseA.T) / 2
+    A0 = matrixOperator(baseA, backendName='scipy')
+    B0 = matrixOperator(rng.standard_normal((n, n)), backendName='scipy')
+    C0 = matrixOperator(rng.standard_normal((n, n)), backendName='scipy')
+    lti = ltiModel(
+        A0 + (A0 * 0.0),
+        B0 + (B0 * 0.0),
+        C0 + (C0 * 0.0),
+        backendName='scipy',
+    )
+
+    rom = balancedTruncationReductor(globalBackendName='scipy').reduce(lti, order=3)
+
+    assert rom.order == 3
+    assert rom.Ar.shape == (3, 3)

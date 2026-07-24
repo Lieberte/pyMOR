@@ -11,14 +11,20 @@ class sign(backendLyapunov):
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False) -> Any:
         backend, n = self.localBackend, A.shape[0]
         maxIter, tol = self.options.get('maxIter', 80), self.options.get('tol', 1e-14)
-        aData = backend.linalg.transpose(A.data) if trans else A.data
+        aData = A.toBackendData()
+        if trans:
+            aData = backend.linalg.transpose(aData)
         if E is not None:
             Q = self.prepareQ(B, trans=trans)
-            eData = backend.linalg.transpose(E.data) if trans else E.data
+            eData = E.toBackendData()
+            if trans:
+                eData = backend.linalg.transpose(eData)
             X = backend.linalg.solveGeneralizedContinuousLyapunov(aData, eData, Q)
             return lowRankOperator(backend.linalg.robustSqrtFactor(X, name='SignFallback'), backendName=backend.name)
         Aj = backend.array.copy(aData)
-        Zj = backend.array.copy(B.data)
+        Zj = backend.array.copy(B.toBackendData())
+        if trans:
+            Zj = backend.linalg.transpose(Zj)
         if backend.array.ndim(Zj) == 1: Zj = backend.array.reshape(Zj, (-1, 1))
         if hasattr(Zj, 'to') and hasattr(Aj, 'dtype'): Zj = Zj.to(Aj.dtype)
         eye = backend.array.eye(n, dtype=A.dtype)
