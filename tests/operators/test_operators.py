@@ -88,3 +88,27 @@ def test_low_rank_to_backend_data_symmetric_and_general(rng):
         lowRankOperator(L, R, backendName='scipy').toBackendData(),
         L @ R.T,
     )
+
+
+def test_low_rank_negative_scaling_preserves_operator_value(rng):
+    L = rng.standard_normal((6, 2))
+    op = lowRankOperator(L, backendName='scipy')
+
+    scaled = -2.0 * op
+
+    np.testing.assert_allclose(scaled.toBackendData(), -2.0 * (L @ L.T))
+    assert np.isfinite(scaled.toBackendData()).all()
+
+
+def test_left_scalar_multiplication_matches_right_multiplication(rng):
+    data = rng.standard_normal((4, 3))
+    op = matrixOperator(data, backendName='scipy')
+
+    np.testing.assert_allclose((2.0 * op).toBackendData(), (op * 2.0).toBackendData())
+
+
+def test_sum_operator_rejects_non_operator_entry(rng):
+    op = matrixOperator(rng.standard_normal((3, 3)), backendName='scipy')
+
+    with pytest.raises(TypeError, match='operatorBase'):
+        _ = op + np.eye(3)

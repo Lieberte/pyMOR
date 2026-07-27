@@ -14,6 +14,10 @@ class podResult:
     reconstructionError: float | None = None
     solverInfo: dict = dataclasses.field(default_factory=dict)
 
+    @property
+    def basis(self) -> matrixOperator:
+        return self.V
+
 class podReductor:
     def __init__(self, globalBackendName: str | None = None, **kwargs):
         self.backendName = globalBackendName

@@ -8,13 +8,27 @@ from mor.algorithm.registry import algorithmRegistry
 @registerLyapunovSolver('unified')
 class lyapunovSolver:
     def __init__(self, backendName: str | None = None, **kwargs):
-        self.localBackend, self.options = backendRegistry.get(backendName), kwargs
+        self.localBackend = backendRegistry.get(backendName)
+        self.isContinuous = kwargs.pop('isContinuous', True)
+        for contextName in ('A', 'B', 'C', 'E'):
+            kwargs.pop(contextName, None)
+        self.options = kwargs
 
-    def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False) -> Any:
+    def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False, isContinuous: bool | None = None) -> Any:
         backend = self.localBackend
         backendName = A.backendName or backend.name
+        isContinuous = self.isContinuous if isContinuous is None else isContinuous
         variant = self.options.get('lyapunovVariant', self.options.get('variant', 'auto'))
-        algorithm = algorithmRegistry.get(category='lyapunov', variant=variant, forceOptions=self.options, backendName=backendName, A=A, E=E, B=B)
+        algorithm = algorithmRegistry.get(
+            category='lyapunov',
+            variant=variant,
+            forceOptions=self.options,
+            backendName=backendName,
+            A=A,
+            E=E,
+            B=B,
+            isContinuous=isContinuous,
+        )
         self._lastAlgorithmName = algorithm.__class__.__name__
         return algorithm.solve(A, E, B, trans=trans)
 
@@ -27,7 +41,7 @@ class lyapunovSolver:
     def solveControllabilityAndObservability(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, C: matrixOperator, isContinuous: bool = True) -> Tuple[Any, Any, matrixOperator]:
         self.validateInputs(A, E, B, C)
         backend = self.localBackend
-        if E is not None: return self.solve(A, E, B, trans=False), self.solve(A, E, C, trans=True), E
+        if E is not None: return self.solve(A, E, B, trans=False, isContinuous=isContinuous), self.solve(A, E, C, trans=True, isContinuous=isContinuous), E
         n = A.shape[0]
         eEff = matrixOperator(backend.array.eye(n), backendName=backend.name)
-        return self.solve(A, None, B, trans=False), self.solve(A, None, C, trans=True), eEff
+        return self.solve(A, None, B, trans=False, isContinuous=isContinuous), self.solve(A, None, C, trans=True, isContinuous=isContinuous), eEff

@@ -24,6 +24,7 @@ def test_pod_end_to_end(rng):
     ref = np.linalg.svd(snap.toBackendData(), compute_uv=False)
     np.testing.assert_allclose(np.sort(result.S)[::-1], np.sort(ref[:3])[::-1])
     assert result.solverInfo['podSolver'] == 'snapshotPodSolver'
+    assert result.basis is result.V
 
 
 def test_balanced_truncation_end_to_end(rng):
@@ -61,3 +62,54 @@ def test_balanced_truncation_accepts_composed_operators(rng):
 
     assert rom.order == 3
     assert rom.Ar.shape == (3, 3)
+
+
+def test_balanced_truncation_result_exposes_lti_model(rng):
+    n = 6
+    model = ltiModel(
+        matrixOperator(-np.diag(np.linspace(1.0, 2.0, n)), backendName='scipy'),
+        matrixOperator(rng.standard_normal((n, 2)), backendName='scipy'),
+        matrixOperator(rng.standard_normal((3, n)), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    rom = balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
+
+    assert isinstance(rom.model, ltiModel)
+    assert rom.model.order == 2
+    assert rom.model.inputDim == 2
+    assert rom.model.outputDim == 3
+    assert rom.model.isContinuous
+
+
+def test_balanced_truncation_uses_model_time_domain_by_default(rng):
+    n = 5
+    model = ltiModel(
+        matrixOperator(0.3 * np.eye(n), backendName='scipy'),
+        matrixOperator(rng.standard_normal((n, 1)), backendName='scipy'),
+        matrixOperator(rng.standard_normal((1, n)), backendName='scipy'),
+        backendName='scipy',
+        isContinuous=False,
+    )
+
+    with pytest.raises(NotImplementedError, match='Dense discrete'):
+        balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
+
+
+def test_sparse_discrete_balanced_truncation_uses_lrsmith(rng):
+    from scipy.sparse import diags
+
+    n = 6
+    model = ltiModel(
+        matrixOperator(diags(np.linspace(0.1, 0.6, n), format='csr'), backendName='scipy'),
+        matrixOperator(rng.standard_normal((n, 1)), backendName='scipy'),
+        matrixOperator(rng.standard_normal((1, n)), backendName='scipy'),
+        backendName='scipy',
+        isContinuous=False,
+    )
+
+    rom = balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
+
+    assert not rom.isContinuous
+    assert not rom.model.isContinuous
+    assert rom.solverInfo['lyapunov'] == 'lrsmith'

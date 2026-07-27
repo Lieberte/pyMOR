@@ -1,4 +1,5 @@
 from typing import Tuple, Any
+from numbers import Number, Real
 from .operatorsBase import operatorBase
 
 class lowRankOperator(operatorBase):
@@ -59,8 +60,14 @@ class lowRankOperator(operatorBase):
             return backend.linalg.dot(l, tmp)
 
     def __mul__(self, scalar: float) -> 'lowRankOperator':
-        import numpy as np
-        return lowRankOperator(self.left * np.sqrt(scalar), self.right * np.sqrt(scalar) if self.right is not None else None, backendName=self.backendName)
+        if not isinstance(scalar, Number):
+            return NotImplemented
+        if self.right is not None:
+            return lowRankOperator(self.left * scalar, self.right, backendName=self.backendName)
+        if isinstance(scalar, Real) and scalar >= 0:
+            factor = self.localBackend.array.sqrt(scalar)
+            return lowRankOperator(self.left * factor, backendName=self.backendName)
+        return lowRankOperator(self.left * scalar, self.left, backendName=self.backendName)
 
     def toNumpy(self) -> Any:
         backend = self.localBackend

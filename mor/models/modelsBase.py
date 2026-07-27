@@ -5,7 +5,7 @@ from mor.backends import backendRegistry
 class modelBase(ABC):
     def __init__(self, backendName: str | None = None):
         self.localBackend = backendRegistry.get(backendName)
-        self._backendName = backendName
+        self._backendName = self.localBackend.name
 
     @property
     def backendName(self) -> str | None:

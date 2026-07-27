@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from numbers import Number
 from typing import Tuple, Any
 
 from mor.backends import backendRegistry
@@ -6,7 +7,7 @@ from mor.backends import backendRegistry
 class operatorBase(ABC):
     def __init__(self, backendName: str | None = None):
         self.localBackend = backendRegistry.get(backendName)
-        self._backendName = backendName
+        self._backendName = self.localBackend.name
 
     @property
     @abstractmethod
@@ -35,6 +36,9 @@ class operatorBase(ABC):
     @abstractmethod
     def toBackendData(self) -> Any:
         pass
+
+    def toNumpy(self) -> Any:
+        return self.localBackend.array.toNumpy(self.toBackendData())
 
     @property
     def operatorKind(self) -> str:
@@ -88,8 +92,16 @@ class operatorBase(ABC):
         return sumOperator([self, (other * -1.0)], backendName=self.backendName)
 
     def __mul__(self, scalar: float) -> 'operatorBase':
+        if not isinstance(scalar, Number):
+            return NotImplemented
         from .scaled import scaledOperator
         return scaledOperator(self, scalar, backendName=self.backendName)
+
+    def __rmul__(self, scalar: float) -> 'operatorBase':
+        return self * scalar
+
+    def __neg__(self) -> 'operatorBase':
+        return self * -1.0
 
     @property
     def backendName(self) -> str | None:

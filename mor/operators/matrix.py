@@ -1,4 +1,5 @@
 from typing import Tuple, Any, Optional
+from numbers import Number
 from .operatorsBase import operatorBase
 
 class matrixOperator(operatorBase):
@@ -69,6 +70,8 @@ class matrixOperator(operatorBase):
         return self.data
 
     def __mul__(self, scalar: float) -> 'matrixOperator':
+        if not isinstance(scalar, Number):
+            return NotImplemented
         return matrixOperator(self.data * scalar, backendName=self.backendName)
 
     def toNumpy(self) -> Any:

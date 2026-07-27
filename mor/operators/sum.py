@@ -4,15 +4,20 @@ from .operatorsBase import operatorBase
 class sumOperator(operatorBase):
     def __init__(self, operators: List[operatorBase], backendName: str | None = None):
         if not operators: raise ValueError("Operators list cannot be empty")
+        if any(not isinstance(op, operatorBase) for op in operators):
+            raise TypeError("All entries must be operatorBase instances")
         super().__init__(backendName or operators[0].backendName)
         self.operators = operators
         self._validate()
 
     def _validate(self):
         shape = self.operators[0].shape
+        backendName = self.operators[0].backendName
         for op in self.operators[1:]:
             if op.shape != shape:
                 raise ValueError(f"Operator shape {op.shape} does not match {shape}")
+            if op.backendName != backendName:
+                raise ValueError(f"Operator backend {op.backendName} does not match {backendName}")
 
     @property
     def shape(self) -> Tuple[int, ...]:
