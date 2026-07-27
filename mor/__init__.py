@@ -8,7 +8,7 @@ optional and load on demand.
 
 __version__ = "0.1.0"
 
-from . import algorithm, backends, models, operators, reductors, solvers
+from . import algorithm, applications, backends, models, operators, reductors, solvers
 from .algorithm.registry import algorithmRegistry, registerAlgorithm
 from .backends.registry import backendRegistry, registerBackend
 from .models import ltiModel, modelBase
@@ -25,6 +25,7 @@ from .solvers.registry import registerLyapunovSolver, solverRegistry
 __all__ = [
     "__version__",
     "algorithm",
+    "applications",
     "backends",
     "models",
     "operators",
