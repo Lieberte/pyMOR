@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -11,6 +12,12 @@ from mor.nn.registry import nnRegistry
 
 from .baseDataModule import baseDataModule
 from .thermalOperatorCase import thermalOperatorCase
+from .thermalComponentCase import (
+    loadThermalComponentDataset,
+    thermalComponentCase,
+    thermalComponentFeatureSchema,
+    thermalOperatorFeatureScaling,
+)
 
 
 class _thermalCaseDataset(Dataset):
@@ -105,6 +112,43 @@ class thermalOperatorDataModule(baseDataModule):
             raise ValueError('batchSize must be positive and numWorkers non-negative')
         self.trainDataset = _thermalCaseDataset(self.trainCases)
         self.validationDataset = _thermalCaseDataset(self.validationCases)
+
+    @classmethod
+    def fromComponentCases(
+        cls,
+        cases: Sequence[thermalComponentCase],
+        *,
+        validationGeometryIds: Sequence[str],
+        schema: thermalComponentFeatureSchema | None = None,
+        scaling: thermalOperatorFeatureScaling | None = None,
+        **kwargs,
+    ) -> 'thermalOperatorDataModule':
+        operatorCases = tuple(
+            case.toOperatorCase(schema=schema, scaling=scaling) for case in cases
+        )
+        return cls(
+            operatorCases,
+            validationGeometryIds=validationGeometryIds,
+            **kwargs,
+        )
+
+    @classmethod
+    def fromComponentDataset(
+        cls,
+        directory: str | Path,
+        *,
+        validationGeometryIds: Sequence[str],
+        schema: thermalComponentFeatureSchema | None = None,
+        scaling: thermalOperatorFeatureScaling | None = None,
+        **kwargs,
+    ) -> 'thermalOperatorDataModule':
+        return cls.fromComponentCases(
+            loadThermalComponentDataset(directory),
+            validationGeometryIds=validationGeometryIds,
+            schema=schema,
+            scaling=scaling,
+            **kwargs,
+        )
 
     @staticmethod
     def _validateDimensions(cases: Sequence[thermalOperatorCase]) -> None:
