@@ -2,7 +2,8 @@ from .baseTrainer import baseTrainer
 from .autoEncoderTrainerTorch import autoEncoderTrainerTorch
 from .dynamicsTrainerTorch import dynamicsTrainerTorch
 from .operatorTrainerTorch import operatorTrainerTorch
+from .thermalOperatorTrainerTorch import thermalOperatorTrainerTorch
 from . import fixedGeometry
 from . import parametricGeometry
 
-__all__ = ['baseTrainer', 'autoEncoderTrainerTorch', 'dynamicsTrainerTorch', 'operatorTrainerTorch', 'fixedGeometry', 'parametricGeometry']
+__all__ = ['baseTrainer', 'autoEncoderTrainerTorch', 'dynamicsTrainerTorch', 'operatorTrainerTorch', 'thermalOperatorTrainerTorch', 'fixedGeometry', 'parametricGeometry']
