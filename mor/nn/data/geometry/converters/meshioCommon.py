@@ -94,6 +94,7 @@ def meshIoToIr(
     renameBoundaries: dict[str, str] | None = None,
     useCellSetsIfNoPointSets: bool = True,
     fillBoundaryFacesFromCellSets: bool = True,
+    originalNodeIds: np.ndarray | None = None,
 ) -> meshIr:
     nodes = np.asarray(mesh.points, dtype=float)
     spatialDim = int(nodes.shape[1])
@@ -119,7 +120,30 @@ def meshIoToIr(
     boundaryNodes: dict[str, np.ndarray] = {name: nodes[idx] for name, idx in boundaryNodeIdx.items()}
     boundaryFaces = cellBoundaryFaces if fillBoundaryFacesFromCellSets else {}
     cells = [(c.type, np.asarray(c.data)) for c in mesh.cells] if len(mesh.cells) > 0 else None
-    return meshIr(nodes=nodes, boundaryNodes=boundaryNodes, cells=cells, boundaryFaces=boundaryFaces)
+    pointData = {name: np.asarray(values) for name, values in (mesh.point_data or {}).items()}
+    if originalNodeIds is not None:
+        nodeIds = np.asarray(originalNodeIds).reshape(-1)
+        if nodeIds.size != nodes.shape[0] or np.unique(nodeIds).size != nodeIds.size:
+            raise ValueError('originalNodeIds must contain one unique label per mesh node')
+        pointData['originalNodeId'] = nodeIds
+    cellData = {
+        name: [np.asarray(values) for values in blocks]
+        for name, blocks in (mesh.cell_data or {}).items()
+    }
+    cellSets = {
+        name: [np.asarray(indices if indices is not None else [], dtype=int) for indices in blocks]
+        for name, blocks in (mesh.cell_sets or {}).items()
+    }
+    return meshIr(
+        nodes=nodes,
+        boundaryNodes=boundaryNodes,
+        cells=cells,
+        boundaryFaces=boundaryFaces,
+        boundaryNodeIndices=boundaryNodeIdx,
+        pointData=pointData,
+        cellData=cellData,
+        cellSets=cellSets,
+    )
 
 def meshFileToIr(
     path: str | Path,

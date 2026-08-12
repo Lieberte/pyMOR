@@ -11,6 +11,12 @@ from .ssmDynamicsTorch import ssmDynamicsTorch
 from .heatSteadyStateTorch import heatSteadyStateTorch
 from . import pinn
 from . import operator
+from .operator import (
+    thermalMeshGnnTorch,
+    thermalQuerySetOperatorTorch,
+    thermalSetAttentionOperatorTorch,
+    thermalSetDeepONetTorch,
+)
 
 __all__ = [
     'baseModel',
@@ -25,5 +31,9 @@ __all__ = [
     'ssmDynamicsTorch',
     'heatSteadyStateTorch',
     'pinn',
-    'operator'
+    'operator',
+    'thermalMeshGnnTorch',
+    'thermalSetDeepONetTorch',
+    'thermalSetAttentionOperatorTorch',
+    'thermalQuerySetOperatorTorch',
 ]
