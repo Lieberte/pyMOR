@@ -3,7 +3,7 @@ from .mseReconstructionLoss import mseReconstructionLoss
 from .vaeReconstructionLoss import vaeReconstructionLoss
 from .oneStepPredictionLoss import oneStepPredictionLoss
 from .pdeResidualLoss import pdeResidualLoss
-from .thermalOperatorLoss import thermalOperatorLoss
+from .thermalOperatorLoss import thermalMeanShapeEnergyLoss, thermalOperatorLoss
 from . import pinn
 
 __all__ = [
@@ -13,5 +13,6 @@ __all__ = [
     'oneStepPredictionLoss',
     'pdeResidualLoss',
     'thermalOperatorLoss',
+    'thermalMeanShapeEnergyLoss',
     'pinn'
 ]

@@ -65,6 +65,7 @@ component_dataset/
 - `boundaryNormals`：单位外法向。
 - `boundaryHtcWPerM2K`：逐点 HTC。
 - `boundaryAmbientTemperatureK`：逐点环境温度。
+- `boundaryHeatFluxWPerM2`：逐点法向热流密度；正负号沿数据源约定统一。
 - `boundaryWeightsM2`：每个边界点代表的面积。
 - `boundaryTypeIds`：边界类别编号，例如对流、绝热、接触或给定温度。
 - `boundaryExtraFeatures`：可选附加特征。
@@ -121,8 +122,10 @@ case = thermalComponentCase(
         normals=boundary_normals,
         htcWPerM2K=htc,
         ambientTemperatureK=ambient_temperature,
+        heatFluxWPerM2=heat_flux,
         weightsM2=nodal_area,
         boundaryTypeIds=boundary_type,
+        patchIds=boundary_patch_id,
     ),
     temperature=thermalTemperatureSamples(
         coordinatesMeters=query_xyz,
@@ -158,6 +161,61 @@ data_module = thermalOperatorDataModule.fromComponentDataset(
 同一个 `geometryId` 下的粗网格和细网格会一起进入训练集或验证集。
 
 当热源和 HTC 已知时，`operatingFeatureNames` 可以为空。转速、扭矩等仍可保存在原始 Case 的元数据或工况字段中，但不必进入第一版温度算子的网络输入。
+
+## 真实电机 FEM 转换
+
+`motorFemComponentCase.py` 可以把已经求解的电机 FEM 区域拆成独立部件 Case：
+
+- 每个四面体转换为体域积分点，权重为单元体积；
+- 每个表面节点转换为边界点，权重为三角形面积的节点集总；
+- 结果文件中的逐节点 `heatFlowRate` 转换成 `heatFluxWPerM2`；
+- 当逐节点热流采用对称模型缩放口径时，使用 overview 总换热量校准其整体尺度；
+- FEM 节点温度作为查询标签；
+- 四面体和三角形连接只在转换阶段使用，不进入神经网络。
+
+生成单部件数据集：
+
+```powershell
+python scripts/build_motor_fem_component_dataset.py `
+  "F:\mor\motor\motor htc\motor htc" `
+  "temp\motor_fem_component_smoke_magnets_2500" `
+  --component magnets --speeds 2500 `
+  --maximum-volume-samples 1024 `
+  --maximum-boundary-samples 2048 `
+  --maximum-query-samples 512
+```
+
+单 Case 过拟合验证：
+
+```powershell
+python scripts/run_motor_fem_component_overfit.py `
+  "temp\motor_fem_component_smoke_magnets_2500" `
+  --epochs 3000 --hidden-dim 64 `
+  --kernel-scale 0.15 --query-fourier-frequencies 4
+```
+
+跨转速留出测试：
+
+```powershell
+python scripts/run_motor_fem_speed_holdout.py `
+  "F:\mor\motor\motor htc\motor htc" `
+  --test-speeds 7500 15000 22500 `
+  --output reports\motor_speed_holdout_7500_15000_22500.json
+```
+
+该脚本同时训练一个八元件共享模型和八个元件专用模型，并输出整体、逐元件、逐转速以及常数温度基线指标。
+
+该模式的边界热流来自已求解结果，适合先验证部件数据格式和网络可拟合性。后续验证未知工况时，应逐步替换为求解前已知的 HTC、环境温度、接触热阻或外部耦合模型提供的界面量。
+
+### 局部密度、积分权重和表面分组
+
+v3 格式明确保存局部强度量及其积分权重：
+
+- 体热源功率由 `volumeHeatSourceWPerM3 * volumeWeightsM3` 求和得到；
+- 边界换热量由 `boundaryHeatFluxWPerM2 * boundaryWeightsM2` 求和得到；
+- `boundaryPatchIds` 只用于表面分组、界面耦合和逐面守恒检查，不直接作为神经网络输入。
+
+真实 FEM 转换会读取 `.samesh/patches/<parentPatchUuid>/<patchUuid>`，将边界样本按 surface patch 展开。共享棱边上的几何节点可以在不同 patch 中各出现一次，各自携带该 patch 分摊的面积和法向。使用 `--verbose` 可以逐面打印期望换热量、重构换热量、下采样后换热量及误差。
 
 ## 当前框架边界
 

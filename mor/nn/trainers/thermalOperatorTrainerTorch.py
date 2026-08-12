@@ -16,6 +16,15 @@ def _batchToDevice(batch: dict[str, Any], device: str) -> dict[str, Any]:
     }
 
 
+def _boundaryQueryBatch(batch: dict[str, Any]) -> dict[str, Any]:
+    boundaryBatch = dict(batch)
+    queryDim = int(batch['queryCoordinates'].shape[-1])
+    boundaryBatch['queryCoordinates'] = batch['boundaryFeatures'][..., :queryDim]
+    boundaryBatch['queryWeights'] = batch['boundaryWeights']
+    boundaryBatch['queryMask'] = batch['boundaryMask']
+    return boundaryBatch
+
+
 class thermalOperatorTrainerTorch(baseTrainer):
     def __init__(
         self,
@@ -46,13 +55,30 @@ class thermalOperatorTrainerTorch(baseTrainer):
             batch = _batchToDevice(rawBatch, device)
             if optimizer is not None:
                 optimizer.zero_grad(set_to_none=True)
-            predictions = model(batch)
-            loss = self.lossFunction.compute(
-                predictions,
-                batch['targets'],
-                batch['queryWeights'],
-                batch['queryMask'],
-            )
+            if hasattr(self.lossFunction, 'computeBatch'):
+                modelOutput = (
+                    model.forwardWithAux(batch)
+                    if hasattr(model, 'forwardWithAux')
+                    else model(batch)
+                )
+                boundaryPredictions = None
+                if getattr(
+                    self.lossFunction, 'requiresBoundaryPredictions', False
+                ):
+                    boundaryPredictions = model(_boundaryQueryBatch(batch))
+                loss = self.lossFunction.computeBatch(
+                    modelOutput,
+                    batch,
+                    boundaryPredictions=boundaryPredictions,
+                )
+            else:
+                predictions = model(batch)
+                loss = self.lossFunction.compute(
+                    predictions,
+                    batch['targets'],
+                    batch['queryWeights'],
+                    batch['queryMask'],
+                )
             if optimizer is not None:
                 loss.backward()
                 if self.gradientClip is not None:

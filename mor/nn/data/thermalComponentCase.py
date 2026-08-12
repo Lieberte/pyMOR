@@ -10,7 +10,10 @@ import numpy as np
 from .thermalOperatorCase import thermalOperatorCase
 
 
-FORMAT_VERSION = 'thermal-component-case-v1'
+FORMAT_VERSION = 'thermal-component-case-v3'
+SUPPORTED_FORMAT_VERSIONS = frozenset(
+    ('thermal-component-case-v1', 'thermal-component-case-v2', 'thermal-component-case-v3')
+)
 
 
 def _finiteMatrix(value: Any, columns: int, name: str) -> np.ndarray:
@@ -155,6 +158,12 @@ class thermalVolumeSamples:
             self, 'extraFeatures', _extraFeatures(self.extraFeatures, count, 'volume extraFeatures')
         )
 
+    @property
+    def totalHeatSourcePowerW(self) -> float:
+        """Return the volume integral of the pointwise heat-source density."""
+
+        return float(np.dot(self.heatSourceWPerM3, self.weightsM3))
+
 
 @dataclass(frozen=True)
 class thermalBoundarySamples:
@@ -164,6 +173,8 @@ class thermalBoundarySamples:
     ambientTemperatureK: Any
     weightsM2: Any
     boundaryTypeIds: Any | None = None
+    heatFluxWPerM2: Any | None = None
+    patchIds: Any | None = None
     extraFeatures: Any | None = None
 
     def __post_init__(self):
@@ -184,6 +195,18 @@ class thermalBoundarySamples:
         )
         if boundaryTypes.size != count or np.any(boundaryTypes < 0):
             raise ValueError('boundaryTypeIds must contain one non-negative id per boundary point')
+        heatFlux = (
+            np.zeros(count, dtype=np.float64)
+            if self.heatFluxWPerM2 is None
+            else _finiteVector(self.heatFluxWPerM2, count, 'heatFluxWPerM2')
+        )
+        patchIds = (
+            np.zeros(count, dtype=np.int64)
+            if self.patchIds is None
+            else np.asarray(self.patchIds, dtype=np.int64).reshape(-1)
+        )
+        if patchIds.size != count or np.any(patchIds < 0):
+            raise ValueError('patchIds must contain one non-negative id per boundary point')
         object.__setattr__(self, 'coordinatesMeters', coordinates)
         object.__setattr__(self, 'normals', normals)
         object.__setattr__(self, 'htcWPerM2K', htc)
@@ -194,9 +217,30 @@ class thermalBoundarySamples:
         )
         object.__setattr__(self, 'weightsM2', _positiveVector(self.weightsM2, count, 'weightsM2'))
         object.__setattr__(self, 'boundaryTypeIds', boundaryTypes)
+        object.__setattr__(self, 'heatFluxWPerM2', heatFlux)
+        object.__setattr__(self, 'patchIds', patchIds)
         object.__setattr__(
             self, 'extraFeatures', _extraFeatures(self.extraFeatures, count, 'boundary extraFeatures')
         )
+
+    @property
+    def totalHeatFlowRateW(self) -> float:
+        """Return the area integral of the pointwise normal heat-flux density."""
+
+        return float(np.dot(self.heatFluxWPerM2, self.weightsM2))
+
+    def heatFlowRateWByPatch(self) -> dict[int, float]:
+        """Return area-integrated heat-flow rate for every surface patch."""
+
+        return {
+            int(patchId): float(
+                np.dot(
+                    self.heatFluxWPerM2[self.patchIds == patchId],
+                    self.weightsM2[self.patchIds == patchId],
+                )
+            )
+            for patchId in np.unique(self.patchIds)
+        }
 
 
 @dataclass(frozen=True)
@@ -223,6 +267,7 @@ class thermalOperatorFeatureScaling:
     specificHeatJPerKgK: float = 1000.0
     heatSourceWPerM3: float = 1e6
     htcWPerM2K: float = 1000.0
+    heatFluxWPerM2: float = 1e5
     temperatureReferenceK: float = 293.15
     temperatureScaleK: float = 100.0
     operatingScales: Mapping[str, float] = field(default_factory=dict)
@@ -235,6 +280,7 @@ class thermalOperatorFeatureScaling:
             'specificHeatJPerKgK',
             'heatSourceWPerM3',
             'htcWPerM2K',
+            'heatFluxWPerM2',
             'temperatureScaleK',
         )
         for name in positiveNames:
@@ -256,6 +302,8 @@ class thermalOperatorFeatureScaling:
 class thermalComponentFeatureSchema:
     operatingFeatureNames: Sequence[str] = ()
     boundaryTypeCount: int = 1
+    temperatureBoundaryTypeIds: Sequence[int] = ()
+    fixedTemperatureBoundaryTypeIds: Sequence[int] = ()
 
     def __post_init__(self):
         names = tuple(str(name).strip() for name in self.operatingFeatureNames)
@@ -264,8 +312,49 @@ class thermalComponentFeatureSchema:
         boundaryTypeCount = int(self.boundaryTypeCount)
         if boundaryTypeCount <= 0:
             raise ValueError('boundaryTypeCount must be positive')
+        temperatureBoundaryTypeIds = tuple(
+            int(value) for value in self.temperatureBoundaryTypeIds
+        )
+        if (
+            len(set(temperatureBoundaryTypeIds)) != len(temperatureBoundaryTypeIds)
+            or any(
+                value < 0 or value >= boundaryTypeCount
+                for value in temperatureBoundaryTypeIds
+            )
+        ):
+            raise ValueError(
+                'temperatureBoundaryTypeIds must contain unique ids within '
+                'boundaryTypeCount'
+            )
+        fixedTemperatureBoundaryTypeIds = tuple(
+            int(value) for value in self.fixedTemperatureBoundaryTypeIds
+        )
+        if (
+            len(set(fixedTemperatureBoundaryTypeIds))
+            != len(fixedTemperatureBoundaryTypeIds)
+            or any(
+                value < 0 or value >= boundaryTypeCount
+                for value in fixedTemperatureBoundaryTypeIds
+            )
+            or any(
+                value not in temperatureBoundaryTypeIds
+                for value in fixedTemperatureBoundaryTypeIds
+            )
+        ):
+            raise ValueError(
+                'fixedTemperatureBoundaryTypeIds must be a unique subset of '
+                'temperatureBoundaryTypeIds'
+            )
         object.__setattr__(self, 'operatingFeatureNames', names)
         object.__setattr__(self, 'boundaryTypeCount', boundaryTypeCount)
+        object.__setattr__(
+            self, 'temperatureBoundaryTypeIds', temperatureBoundaryTypeIds
+        )
+        object.__setattr__(
+            self,
+            'fixedTemperatureBoundaryTypeIds',
+            fixedTemperatureBoundaryTypeIds,
+        )
 
 
 @dataclass(frozen=True)
@@ -326,13 +415,28 @@ class thermalComponentCase:
         boundaryTypeOneHot = np.eye(resolvedSchema.boundaryTypeCount, dtype=np.float64)[
             self.boundary.boundaryTypeIds
         ]
+        temperatureActive = self.boundary.htcWPerM2K > 0.0
+        if resolvedSchema.temperatureBoundaryTypeIds:
+            temperatureActive |= np.isin(
+                self.boundary.boundaryTypeIds,
+                resolvedSchema.temperatureBoundaryTypeIds,
+            )
+        normalizedBoundaryTemperature = np.where(
+            temperatureActive,
+            (
+                self.boundary.ambientTemperatureK
+                - resolvedScaling.temperatureReferenceK
+            )
+            / resolvedScaling.temperatureScaleK,
+            0.0,
+        )
         boundaryFeatures = np.column_stack(
             (
                 boundaryCoordinates,
                 self.boundary.normals,
                 self.boundary.htcWPerM2K / resolvedScaling.htcWPerM2K,
-                (self.boundary.ambientTemperatureK - resolvedScaling.temperatureReferenceK)
-                / resolvedScaling.temperatureScaleK,
+                normalizedBoundaryTemperature,
+                self.boundary.heatFluxWPerM2 / resolvedScaling.heatFluxWPerM2,
                 boundaryTypeOneHot,
                 self.boundary.extraFeatures,
             )
@@ -401,6 +505,8 @@ def saveThermalComponentCase(
         boundaryAmbientTemperatureK=case.boundary.ambientTemperatureK,
         boundaryWeightsM2=case.boundary.weightsM2,
         boundaryTypeIds=case.boundary.boundaryTypeIds,
+        boundaryHeatFluxWPerM2=case.boundary.heatFluxWPerM2,
+        boundaryPatchIds=case.boundary.patchIds,
         boundaryExtraFeatures=case.boundary.extraFeatures,
         queryCoordinatesMeters=case.temperature.coordinatesMeters,
         queryTemperatureK=case.temperature.temperatureK,
@@ -427,7 +533,7 @@ def saveThermalComponentCase(
 def loadThermalComponentCase(directory: str | Path) -> thermalComponentCase:
     root = Path(directory)
     manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
-    if manifest.get('formatVersion') != FORMAT_VERSION:
+    if manifest.get('formatVersion') not in SUPPORTED_FORMAT_VERSIONS:
         raise ValueError(f"unsupported thermal component format: {manifest.get('formatVersion')!r}")
     with np.load(root / manifest['arrayFile'], allow_pickle=False) as arrays:
         return thermalComponentCase(
@@ -450,6 +556,16 @@ def loadThermalComponentCase(directory: str | Path) -> thermalComponentCase:
                 ambientTemperatureK=arrays['boundaryAmbientTemperatureK'],
                 weightsM2=arrays['boundaryWeightsM2'],
                 boundaryTypeIds=arrays['boundaryTypeIds'],
+                heatFluxWPerM2=(
+                    arrays['boundaryHeatFluxWPerM2']
+                    if 'boundaryHeatFluxWPerM2' in arrays
+                    else None
+                ),
+                patchIds=(
+                    arrays['boundaryPatchIds']
+                    if 'boundaryPatchIds' in arrays
+                    else None
+                ),
                 extraFeatures=arrays['boundaryExtraFeatures'],
             ),
             temperature=thermalTemperatureSamples(
@@ -467,6 +583,7 @@ def saveThermalComponentDataset(
     directory: str | Path,
     *,
     boundaryTypeNames: Mapping[int, str] | None = None,
+    datasetMetadata: Mapping[str, Any] | None = None,
     overwrite: bool = False,
 ) -> Path:
     root = Path(directory)
@@ -510,6 +627,7 @@ def saveThermalComponentDataset(
                         str(identifier): name for identifier, name in sorted(boundaryNames.items())
                     },
                 },
+                'metadata': _jsonReady(datasetMetadata or {}),
                 'cases': entries,
             },
             indent=2,
@@ -522,6 +640,6 @@ def saveThermalComponentDataset(
 def loadThermalComponentDataset(directory: str | Path) -> tuple[thermalComponentCase, ...]:
     root = Path(directory)
     index = json.loads((root / 'dataset.json').read_text(encoding='utf-8'))
-    if index.get('formatVersion') != FORMAT_VERSION:
+    if index.get('formatVersion') not in SUPPORTED_FORMAT_VERSIONS:
         raise ValueError(f"unsupported thermal component dataset: {index.get('formatVersion')!r}")
     return tuple(loadThermalComponentCase(root / entry['path']) for entry in index['cases'])

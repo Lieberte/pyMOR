@@ -71,3 +71,11 @@ c(\mathbf{x})=
 - 尚未测试真实求解器导出的节点面积/体积权重质量。
 
 下一步应停止继续优化合成数据，先建立一个真实求解器导出 case 的适配器，并使用“整台电机留一”的方式复核这套 query-set 基线。
+
+## 真实 FEM 无量纲化更新
+
+真实电机 FEM 数据已经完成逐元件混合锚点训练和物理无量纲化测试。无量纲版本使用逐 FEM 的特征长度、有效导热率以及仅由热源、边界热流、净功率和 HTC 计算的温度尺度，同步处理材料、温度、体热源、面热流、Biot 数、面积和体积。
+
+在电机1留出转速上，总体 RMSE 从原缩放版本的 1.107 K 降至 0.434 K。在不进行输入裁剪的 motor2 零样本测试中，总体 RMSE 从 1594.41 K 降至 34.05 K；winding 和 stator 分别达到 4.80 K 和 5.97 K。高 Biot magnet 和新的 rotor 热流空间模式仍未被训练数据覆盖。
+
+完整实验协议、分项结果和限制见：`reports/thermal_operator_dimensionless/THERMAL_OPERATOR_DIMENSIONLESS_REPORT.md`。

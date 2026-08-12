@@ -12,6 +12,7 @@ from .heatSteadyStateTorch import heatSteadyStateTorch
 from . import pinn
 from . import operator
 from .operator import (
+    thermalMeshGnnTorch,
     thermalQuerySetOperatorTorch,
     thermalSetAttentionOperatorTorch,
     thermalSetDeepONetTorch,
@@ -31,6 +32,7 @@ __all__ = [
     'heatSteadyStateTorch',
     'pinn',
     'operator',
+    'thermalMeshGnnTorch',
     'thermalSetDeepONetTorch',
     'thermalSetAttentionOperatorTorch',
     'thermalQuerySetOperatorTorch',

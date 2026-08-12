@@ -16,6 +16,62 @@ from .thermalComponentCase import (
     saveThermalComponentCase,
     saveThermalComponentDataset,
 )
+from .motorFemComponentCase import (
+    CONVECTION_BOUNDARY_TYPE,
+    FIXED_TEMPERATURE_BOUNDARY_TYPE as MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE,
+    RESULT_HEAT_FLUX_BOUNDARY_TYPE,
+    buildMotorFemComponentCase,
+    buildMotorFemComponentCases,
+    formatMotorFemBoundaryHeatFlowReport,
+    motorFemComponentNames,
+)
+from .motorStaDataset import (
+    buildMotorDatasetFromSta,
+    inspectMotorStaArchive,
+    motorStaArchiveInfo,
+    motorStaDatasetBuild,
+)
+from .motorDirectoryDataset import (
+    buildMotorDatasetFromDirectories,
+    motorDirectoryDatasetBuild,
+)
+from .motorFullResolutionDataset import (
+    FULL_DATASET_FORMAT_VERSION,
+    GRAPH_FORMAT_VERSION,
+    POINT_FORMAT_VERSION,
+    buildFullResolutionMotorDatasetFromDirectories,
+)
+from .motorWholeDataset import (
+    WHOLE_MOTOR_FORMAT_VERSION,
+    loadWholeMotorDataset,
+    saveWholeMotorDataset,
+    wholeMotorCase,
+    wholeMotorDataset,
+)
+from .thermalDatasetAdapter import (
+    CANONICAL_THERMAL_BOUNDARY_TYPE_NAMES,
+    loadThermalDatasetAuto,
+    loadThermalTrainingCases,
+    splitThermalCasesByMotorId,
+    subsampleThermalComponentCase,
+    thermalDatasetGroup,
+    thermalDatasetView,
+)
+from .boxFemCase import FIXED_TEMPERATURE_BOUNDARY_TYPE, boxFemCase, buildBoxFemCase
+from .thermalDimensionless import (
+    STEADY_THERMAL_DIMENSIONLESS_V1,
+    STEADY_THERMAL_DIMENSIONLESS_V2,
+    anchorReferenceTemperatureK,
+    enforceMatchingDirichletQueries,
+    hasAbsoluteTemperatureAnchor,
+    randomSimilarityAugmentations,
+    similarityAugmentedThermalComponentCase,
+    steadyThermalDimensionlessCase,
+    steadyThermalDimensionlessOperatorCase,
+    steadyThermalDimensionlessScaleForCase,
+    steadyThermalDimensionlessScales,
+    steadyThermalDimensionlessV2GlobalFeatureNames,
+)
 from . import geometry
 
 __all__ = [
@@ -36,5 +92,49 @@ __all__ = [
     'loadThermalComponentCase',
     'saveThermalComponentDataset',
     'loadThermalComponentDataset',
+    'RESULT_HEAT_FLUX_BOUNDARY_TYPE',
+    'CONVECTION_BOUNDARY_TYPE',
+    'MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE',
+    'buildMotorFemComponentCase',
+    'buildMotorFemComponentCases',
+    'formatMotorFemBoundaryHeatFlowReport',
+    'motorFemComponentNames',
+    'motorStaArchiveInfo',
+    'motorStaDatasetBuild',
+    'inspectMotorStaArchive',
+    'buildMotorDatasetFromSta',
+    'motorDirectoryDatasetBuild',
+    'buildMotorDatasetFromDirectories',
+    'POINT_FORMAT_VERSION',
+    'GRAPH_FORMAT_VERSION',
+    'FULL_DATASET_FORMAT_VERSION',
+    'buildFullResolutionMotorDatasetFromDirectories',
+    'WHOLE_MOTOR_FORMAT_VERSION',
+    'wholeMotorCase',
+    'wholeMotorDataset',
+    'saveWholeMotorDataset',
+    'loadWholeMotorDataset',
+    'CANONICAL_THERMAL_BOUNDARY_TYPE_NAMES',
+    'thermalDatasetGroup',
+    'thermalDatasetView',
+    'loadThermalDatasetAuto',
+    'loadThermalTrainingCases',
+    'splitThermalCasesByMotorId',
+    'subsampleThermalComponentCase',
+    'FIXED_TEMPERATURE_BOUNDARY_TYPE',
+    'boxFemCase',
+    'buildBoxFemCase',
+    'STEADY_THERMAL_DIMENSIONLESS_V1',
+    'STEADY_THERMAL_DIMENSIONLESS_V2',
+    'hasAbsoluteTemperatureAnchor',
+    'anchorReferenceTemperatureK',
+    'enforceMatchingDirichletQueries',
+    'steadyThermalDimensionlessScales',
+    'steadyThermalDimensionlessCase',
+    'steadyThermalDimensionlessScaleForCase',
+    'steadyThermalDimensionlessOperatorCase',
+    'steadyThermalDimensionlessV2GlobalFeatureNames',
+    'similarityAugmentedThermalComponentCase',
+    'randomSimilarityAugmentations',
     'geometry',
 ]
