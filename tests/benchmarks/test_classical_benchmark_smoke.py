@@ -151,7 +151,7 @@ def test_lradi_benchmark_smoke_collects_sparse_metrics_against_dense_reference(m
         ],
     }
 
-    assert metrics['auto_variant'] == 'lradi'
+    assert metrics['auto_variant'] == 'bartelsStewart'
     assert metrics['source'] in STANDARD_BENCHMARK_SOURCES
     lradi_metric = metrics['results'][0]
     dense_metric = metrics['results'][1]
@@ -385,7 +385,7 @@ def test_lyapunov_dispatch_smoke_covers_top_level_auto_branches():
     discrete_A = matrixOperator(diags([0.2, 0.3, 0.4], format='csr'), backendName='scipy')
 
     assert selectLyapunovAlgorithm(variant='auto', A=dense_A, B=dense_B, backendName='scipy', isContinuous=True) == 'bartelsStewart'
-    assert selectLyapunovAlgorithm(variant='auto', A=sparse_A, B=sparse_B, backendName='scipy', isContinuous=True) == 'lradi'
+    assert selectLyapunovAlgorithm(variant='auto', A=sparse_A, B=sparse_B, backendName='scipy', isContinuous=True) == 'bartelsStewart'
     assert selectLyapunovAlgorithm(variant='auto', A=discrete_A, B=matrixOperator(np.ones((3, 1)), backendName='scipy'), backendName='scipy', isContinuous=False) == 'lrsmith'
     with pytest.raises(NotImplementedError, match='discrete'):
         selectLyapunovAlgorithm(variant='auto', A=dense_A, B=dense_B, backendName='scipy', isContinuous=False)

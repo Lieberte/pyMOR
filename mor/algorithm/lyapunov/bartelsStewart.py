@@ -10,10 +10,14 @@ class bartelsStewart(backendLyapunov):
         backend = self.localBackend
         Q = self.prepareQ(B, trans=trans)
         aData = A.toBackendData()
+        if backend.name == 'scipy':
+            aData = backend.array.toNumpy(aData)
         if trans:
             aData = backend.linalg.transpose(aData)
         if E is not None:
             eData = E.toBackendData()
+            if backend.name == 'scipy':
+                eData = backend.array.toNumpy(eData)
             if trans:
                 eData = backend.linalg.transpose(eData)
             X = backend.linalg.solveGeneralizedContinuousLyapunov(aData, eData, Q)

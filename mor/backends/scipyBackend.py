@@ -48,10 +48,21 @@ class scipyBackend(backendBase):
         def solveGeneralizedContinuousLyapunov(A, E, Q):
             if hasattr(linalg, 'solve_generalized_continuous_lyapunov'):
                 return linalg.solve_generalized_continuous_lyapunov(A, E, -Q)
-            eInvA = linalg.solve(E, A)
-            eInvQ = linalg.solve(E, Q)
-            qTilde = linalg.solve(E, eInvQ.T).T
-            return linalg.solve_continuous_lyapunov(eInvA, -qTilde)
+            def solveCorrection(rhs):
+                eInvA = linalg.solve(E, A)
+                eInvRhs = linalg.solve(E, rhs)
+                transformedRhs = linalg.solve(E, eInvRhs.T).T
+                return linalg.solve_continuous_lyapunov(eInvA, -transformedRhs)
+
+            X = solveCorrection(Q)
+            qNorm = max(linalg.norm(Q, ord=2), np.finfo(float).tiny)
+            for _ in range(2):
+                residual = A @ X @ E.T + E @ X @ A.T + Q
+                if linalg.norm(residual, ord=2) <= qNorm * 1e-10:
+                    break
+                X += solveCorrection(residual)
+                X = (X + X.T) / 2
+            return X
 
         @staticmethod
         def robustSqrtFactor(A, tol=None, name="Matrix"):
@@ -59,17 +70,36 @@ class scipyBackend(backendBase):
             if A.shape[0] != A.shape[1]: return A
             A = (A + A.T) / 2
             eigvals, eigvecs = np.linalg.eigh(A)
+            maxEig = np.max(np.abs(eigvals))
+            automaticTol = maxEig * eigvals.size * np.finfo(eigvals.dtype).eps
             if tol is None:
-                maxEig = np.max(np.abs(eigvals))
-                tol = maxEig * eigvals.size * np.finfo(eigvals.dtype).eps
-            eigvals = np.clip(eigvals, a_min=0, a_max=None)
-            mask = eigvals > tol
-            numTotal, numKeep = len(eigvals), np.sum(mask)
-            if numTotal - numKeep > 0:
-                warnings.warn(f"[{name}] {numTotal - numKeep}/{numTotal} eigenvalues were truncated (below tol={tol:.2e}). This may indicate a stiff or singular system.", RuntimeWarning)
+                tol = automaticTol
+            if tol < 0:
+                raise ValueError("tol must be non-negative")
+
+            negativeTolerance = 10 * automaticTol
+            minEig = np.min(eigvals)
+            positiveEigvals = np.clip(eigvals, a_min=0, a_max=None)
+            mask = positiveEigvals > tol
+            discardedPositive = positiveEigvals[(positiveEigvals > 0) & ~mask]
+            positiveTrace = np.sum(positiveEigvals)
+            discardedFraction = np.sum(discardedPositive) / positiveTrace if positiveTrace > 0 else 0.0
+
+            issues = []
+            if minEig < -negativeTolerance:
+                issues.append(
+                    f"matrix is not positive semidefinite (minimum eigenvalue={minEig:.2e}, "
+                    f"numerical tolerance={negativeTolerance:.2e})"
+                )
+            if discardedFraction > 1e-8:
+                issues.append(
+                    f"tol={tol:.2e} discarded {discardedFraction:.2e} of the positive spectral weight"
+                )
+            if issues:
+                warnings.warn(f"[{name}] " + "; ".join(issues), RuntimeWarning)
             if not np.any(mask):
                 return np.zeros((A.shape[0], 1), dtype=A.dtype)
-            return eigvecs[:, mask] * np.sqrt(eigvals[mask])[np.newaxis, :]
+            return eigvecs[:, mask] * np.sqrt(positiveEigvals[mask])[np.newaxis, :]
 
         @staticmethod
         def balance(A):

@@ -5,12 +5,21 @@ def _is_sparse_operator(op) -> bool:
     return op is not None and getattr(op, 'isSparse', False)
 
 
+def _sparse_density(op) -> float:
+    if not _is_sparse_operator(op):
+        return 1.0
+    data = op.toBackendData()
+    size = data.shape[0] * data.shape[1]
+    return float(getattr(data, 'nnz', size)) / max(size, 1)
+
+
 def selectLyapunovAlgorithm(**kwargs) -> str:
     variant = kwargs.get('variant', 'auto')
     if variant != 'auto': return variant
     
     A = kwargs.get('A')
     E = kwargs.get('E')
+    B = kwargs.get('B')
     backendName = kwargs.get('backendName', 'scipy')
     isContinuous = kwargs.get('isContinuous', True)
     isSparse = any(_is_sparse_operator(op) for op in (A, E))
@@ -21,7 +30,14 @@ def selectLyapunovAlgorithm(**kwargs) -> str:
                 "Sparse Lyapunov auto-dispatch is currently supported only "
                 "for the scipy backend."
             )
-        return 'lradi' if isContinuous else 'lrsmith'
+        if not isContinuous:
+            return 'lrsmith'
+        n = getattr(A, 'shape', (0, 0))[0] if A is not None else 0
+        inputs = getattr(B, 'shape', (0, 1))[1] if B is not None else 1
+        density = max((_sparse_density(op) for op in (A, E) if op is not None), default=0.0)
+        if n <= 64 or (n <= 512 and (density >= 0.2 or inputs > 1)):
+            return 'bartelsStewart'
+        return 'lradi'
     
     if isContinuous:
         if backendName == 'scipy':

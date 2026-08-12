@@ -56,4 +56,5 @@ testpaths = ["tests"]
 addopts = "-q"
 markers = [
     "benchmark: lightweight characterization benchmarks that collect metrics without runtime gating",
+    "application: end-to-end model reduction cases based on generated or public application benchmarks",
 ]

@@ -78,19 +78,46 @@ class torchBackend(backendBase):
 
         @staticmethod
         def robustSqrtFactor(A, tol=None, name="Matrix"):
+            import warnings
             if A.shape[0] != A.shape[1]: return A
             origDtype = A.dtype
             A_work = A.to(torch.float64)
             A_work = (A_work + A_work.mT) / 2
             eigvals, eigvecs = torch.linalg.eigh(A_work)
+            maxEig = torch.max(torch.abs(eigvals)).item()
+            automaticTol = maxEig * eigvals.numel() * torch.finfo(torch.float64).eps
             if tol is None:
-                maxEig = torch.max(torch.abs(eigvals))
-                tol = maxEig * eigvals.numel() * torch.finfo(torch.float64).eps
-            eigvals = torch.clamp(eigvals, min=0)
-            mask = eigvals > tol
+                tol = automaticTol
+            elif isinstance(tol, torch.Tensor):
+                tol = tol.detach().cpu().item()
+            if tol < 0:
+                raise ValueError("tol must be non-negative")
+
+            negativeTolerance = 10 * automaticTol
+            minEig = torch.min(eigvals).item()
+            positiveEigvals = torch.clamp(eigvals, min=0)
+            mask = positiveEigvals > tol
+            discardedPositive = positiveEigvals[(positiveEigvals > 0) & ~mask]
+            positiveTrace = torch.sum(positiveEigvals).item()
+            discardedFraction = (
+                torch.sum(discardedPositive).item() / positiveTrace if positiveTrace > 0 else 0.0
+            )
+
+            issues = []
+            if minEig < -negativeTolerance:
+                issues.append(
+                    f"matrix is not positive semidefinite (minimum eigenvalue={minEig:.2e}, "
+                    f"numerical tolerance={negativeTolerance:.2e})"
+                )
+            if discardedFraction > 1e-8:
+                issues.append(
+                    f"tol={tol:.2e} discarded {discardedFraction:.2e} of the positive spectral weight"
+                )
+            if issues:
+                warnings.warn(f"[{name}] " + "; ".join(issues), RuntimeWarning)
             if not torch.any(mask):
                 return torch.zeros((A.shape[0], 1), dtype=origDtype, device=A.device)
-            res = eigvecs[:, mask] * torch.sqrt(eigvals[mask]).unsqueeze(0)
+            res = eigvecs[:, mask] * torch.sqrt(positiveEigvals[mask]).unsqueeze(0)
             return res.to(origDtype)
 
         @staticmethod

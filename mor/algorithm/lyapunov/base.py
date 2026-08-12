@@ -8,6 +8,16 @@ class backendLyapunov:
 
     def prepareQ(self, B: matrixOperator, trans: bool = False):
         backend, bData = self.localBackend, B.toBackendData()
+        dtype = getattr(bData, 'dtype', None)
+        isFloating = getattr(dtype, 'is_floating_point', False)
+        isComplex = getattr(dtype, 'is_complex', False)
+        if dtype is not None and not isFloating and not isComplex:
+            try:
+                import numpy as np
+                if not np.issubdtype(dtype, np.inexact):
+                    bData = bData * 1.0
+            except TypeError:
+                bData = bData * 1.0
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))
         if trans: return backend.linalg.dot(backend.linalg.transpose(bData), bData)
         return backend.linalg.dot(bData, backend.linalg.transpose(bData))

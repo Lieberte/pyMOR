@@ -51,6 +51,10 @@ class balancedTruncationReductor:
     def reduce(self, model: ltiModel, *, order: int | None = None, maxError: float | None = None, isContinuous: bool | None = None) -> reducedSystem:
         isContinuous = model.isContinuous if isContinuous is None else isContinuous
         self._validateReductionRequest(order, maxError)
+        if isContinuous and self.options.get('unstableHandling') == 'preserve':
+            splitResult = self._reduceSymmetricUnstableModel(model, order=order, maxError=maxError)
+            if splitResult is not None:
+                return splitResult
         self._validateStability(model, isContinuous)
         self.updateOptions(model.A, model.B, model.C, model.E, isContinuous=isContinuous)
         backend = self.localBackend
@@ -137,6 +141,83 @@ class balancedTruncationReductor:
             }
         )
 
+    def _reduceSymmetricUnstableModel(self, model: ltiModel, *, order: int | None, maxError: float | None):
+        import numpy as np
+        from scipy import linalg
+
+        if self.backendName not in (None, 'scipy') or not isinstance(model.A, matrixOperator):
+            raise NotImplementedError("Unstable-mode preservation currently requires scipy matrix operators.")
+        A = np.asarray(model.A.toNumpy())
+        E = np.eye(model.order, dtype=A.dtype) if model.E is None else np.asarray(model.E.toNumpy())
+        symmetryTolerance = self.options.get('symmetryTolerance', 1e-10)
+        if not np.allclose(A, A.T, rtol=symmetryTolerance, atol=symmetryTolerance):
+            raise NotImplementedError("Unstable-mode preservation currently requires a symmetric A matrix.")
+        if not np.allclose(E, E.T, rtol=symmetryTolerance, atol=symmetryTolerance):
+            raise NotImplementedError("Unstable-mode preservation currently requires a symmetric E matrix.")
+        try:
+            eigenvalues, basis = linalg.eigh(A, E)
+        except linalg.LinAlgError as error:
+            raise NotImplementedError("Unstable-mode preservation requires a positive-definite E matrix.") from error
+        unstableMask = eigenvalues >= 0
+        unstableCount = int(np.count_nonzero(unstableMask))
+        if unstableCount == 0:
+            return None
+        if order is None:
+            raise ValueError("An explicit order is required when preserving unstable modes.")
+        if order <= unstableCount:
+            raise ValueError(
+                f"Requested order {order} must exceed the {unstableCount} preserved unstable modes."
+            )
+
+        stableBasis = basis[:, ~unstableMask]
+        unstableBasis = basis[:, unstableMask]
+        B = np.asarray(model.B.toNumpy(), dtype=np.result_type(A.dtype, np.float64))
+        C = np.asarray(model.C.toNumpy(), dtype=np.result_type(A.dtype, np.float64))
+        if B.ndim == 1:
+            B = B.reshape(-1, 1)
+        stableModel = ltiModel(
+            matrixOperator(np.diag(eigenvalues[~unstableMask]), backendName='scipy'),
+            matrixOperator(stableBasis.T @ B, backendName='scipy'),
+            matrixOperator(C @ stableBasis, backendName='scipy'),
+            backendName='scipy',
+            isContinuous=True,
+        )
+        stableOptions = {
+            key: value for key, value in self.options.items()
+            if key not in ('unstableHandling', 'symmetryTolerance', 'checkStability')
+        }
+        stableResult = balancedTruncationReductor(
+            globalBackendName='scipy', **stableOptions
+        ).reduce(stableModel, order=order - unstableCount, maxError=maxError)
+
+        unstableA = np.diag(eigenvalues[unstableMask])
+        unstableB = unstableBasis.T @ B
+        unstableC = C @ unstableBasis
+        stableA = stableResult.Ar.toNumpy()
+        stableE = stableResult.Er.toNumpy()
+        Ar = linalg.block_diag(unstableA, stableA)
+        Er = linalg.block_diag(np.eye(unstableCount), stableE)
+        Br = np.vstack((unstableB, stableResult.Br.toNumpy()))
+        Cr = np.hstack((unstableC, stableResult.Cr.toNumpy()))
+        Dr = model.D.toNumpy() if model.D is not None else np.zeros((model.outputDim, model.inputDim))
+        solverInfo = dict(stableResult.solverInfo)
+        solverInfo.update(
+            unstableHandling='preserve',
+            preservedUnstableModes=unstableCount,
+            stableReducedOrder=stableResult.order,
+        )
+        return reducedSystem(
+            isContinuous=True,
+            Ar=matrixOperator(Ar, backendName='scipy'),
+            Br=matrixOperator(Br, backendName='scipy'),
+            Cr=matrixOperator(Cr, backendName='scipy'),
+            Dr=matrixOperator(Dr, backendName='scipy'),
+            Er=matrixOperator(Er, backendName='scipy'),
+            hsv=stableResult.hsv,
+            order=order,
+            solverInfo=solverInfo,
+        )
+
     def _validateReductionRequest(self, order: int | None, maxError: float | None) -> None:
         if order is not None and maxError is not None:
             raise ValueError("Specify either order or maxError, not both.")
@@ -157,6 +238,13 @@ class balancedTruncationReductor:
         n = model.order
         if not isinstance(model.A, matrixOperator):
             return
+        if model.E is not None and isinstance(model.E, matrixOperator) and n <= self.options.get('descriptorRankCheckMaxSize', 512):
+            import numpy as np
+            if np.linalg.matrix_rank(model.E.toNumpy()) < n:
+                raise NotImplementedError(
+                    "Balanced truncation for singular descriptor systems requires spectral projectors; "
+                    "use a descriptor-specific or frequency-response reductor."
+                )
         if n > self.options.get('stabilityCheckMaxSize', 300) and not model.A.isDiagonal:
             return
         backend = model.localBackend

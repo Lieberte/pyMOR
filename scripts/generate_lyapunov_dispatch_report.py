@@ -105,7 +105,7 @@ def build_cases() -> list[DispatchCase]:
             A=-matrix_depot_poisson_1d(50),
             E=matrix_depot_poisson_1d(50),
             B=np.ones((50, 1)),
-            expected_variant="lradi",
+            expected_variant="bartelsStewart",
         ),
         DispatchCase(
             name="sparse_continuous_scipy_near_unstable_poisson_n50",
@@ -114,7 +114,7 @@ def build_cases() -> list[DispatchCase]:
             is_continuous=True,
             A=-1e-3 * matrix_depot_poisson_1d(50),
             B=np.ones((50, 1)),
-            expected_variant="lradi",
+            expected_variant="bartelsStewart",
         ),
         DispatchCase(
             name="sparse_continuous_scipy_multi_input_poisson_n50",
@@ -123,7 +123,7 @@ def build_cases() -> list[DispatchCase]:
             is_continuous=True,
             A=-matrix_depot_poisson_1d(50),
             B=np.eye(50, 3),
-            expected_variant="lradi",
+            expected_variant="bartelsStewart",
         ),
         DispatchCase(
             name="sparse_discrete_scipy_diagonal_n40",
@@ -383,7 +383,8 @@ def write_markdown(payload: dict[str, Any], rows: list[dict[str, Any]]) -> None:
 本文验证 Lyapunov 顶层 `auto` 分发层，作为算法专项调优前的入口检查：
 - dense continuous scipy -> `bartelsStewart`
 - dense continuous torch -> `sign`
-- sparse continuous scipy -> `lradi`
+- small or moderately dense sparse continuous scipy -> `bartelsStewart`
+- larger low-density sparse continuous scipy -> `lradi`
 - sparse discrete scipy -> `lrsmith`
 - dense discrete -> 设计上不支持
 

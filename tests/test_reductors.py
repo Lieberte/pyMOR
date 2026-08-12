@@ -10,6 +10,7 @@ from mor.operators import matrixOperator
 from mor.models.lti import ltiModel
 from mor.reductors.pod import podReductor
 from mor.reductors.balancedTruncation import balancedTruncationReductor
+from mor.reductors.frequencyResponse import frequencyResponseReductor
 
 
 @pytest.fixture
@@ -169,6 +170,26 @@ def test_balanced_truncation_rejects_unstable_continuous_model():
         balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=1)
 
 
+def test_balanced_truncation_preserves_symmetric_unstable_modes():
+    A = np.diag([0.2, -1.0, -2.0, -3.0])
+    model = ltiModel(
+        matrixOperator(A, backendName='scipy'),
+        matrixOperator(np.ones((4, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 4)), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    rom = balancedTruncationReductor(
+        globalBackendName='scipy', unstableHandling='preserve'
+    ).reduce(model, order=3)
+
+    eigenvalues = np.linalg.eigvals(rom.Ar.toNumpy())
+    assert rom.order == 3
+    assert rom.solverInfo['preservedUnstableModes'] == 1
+    assert np.count_nonzero(eigenvalues.real >= 0) == 1
+    assert eigenvalues.real.max() == pytest.approx(0.2)
+
+
 def test_balanced_truncation_rejects_zero_hankel_singular_values():
     model = ltiModel(
         matrixOperator(-np.diag([1.0, 2.0]), backendName='scipy'),
@@ -194,6 +215,49 @@ def test_descriptor_balanced_truncation_uses_e_weighted_cross_gramian(rng):
     rom = balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
 
     np.testing.assert_allclose(rom.Er.toNumpy(), np.eye(2), atol=1e-10)
+
+
+def test_balanced_truncation_rejects_singular_descriptor():
+    model = ltiModel(
+        matrixOperator(-np.eye(3), backendName='scipy'),
+        matrixOperator(np.ones((3, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 3)), backendName='scipy'),
+        E=matrixOperator(np.diag([1.0, 1.0, 0.0]), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    with pytest.raises(NotImplementedError, match='spectral projectors'):
+        balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
+
+
+def test_frequency_response_reductor_handles_singular_descriptor():
+    A = -np.eye(4)
+    E = np.diag([1.0, 2.0, 0.0, 0.0])
+    model = ltiModel(
+        matrixOperator(A, backendName='scipy'),
+        matrixOperator(np.ones((4, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 4)), backendName='scipy'),
+        E=matrixOperator(E, backendName='scipy'),
+        backendName='scipy',
+    )
+    frequencies = np.logspace(-2, 2, 12)
+
+    rom = frequencyResponseReductor(
+        globalBackendName='scipy', frequencies=frequencies
+    ).reduce(model, order=3)
+
+    full = np.array([
+        model.C.toNumpy() @ np.linalg.solve(1j * frequency * E - A, model.B.toNumpy())
+        for frequency in frequencies
+    ])
+    reduced = np.array([
+        rom.Cr.toNumpy() @ np.linalg.solve(
+            1j * frequency * rom.Er.toNumpy() - rom.Ar.toNumpy(), rom.Br.toNumpy()
+        )
+        for frequency in frequencies
+    ])
+    assert rom.order == 3
+    assert np.linalg.norm(reduced - full) / np.linalg.norm(full) < 1e-10
 
 
 def test_balanced_truncation_rejects_unconverged_gramian():

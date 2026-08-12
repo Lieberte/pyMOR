@@ -53,10 +53,22 @@ def test_dense_continuous_torch_dispatches_to_sign():
     assert selectLyapunovAlgorithm(variant='auto', A=_FakeA(), backendName='torch', isContinuous=True) == 'sign'
 
 
-def test_sparse_continuous_dispatches_to_lradi():
+def test_small_sparse_continuous_dispatches_to_dense_direct_solver():
     A = matrixOperator(diags([-1.0, -2.0, -3.0], format='csr'), backendName='scipy')
 
+    assert selectLyapunovAlgorithm(variant='auto', A=A, backendName='scipy', isContinuous=True) == 'bartelsStewart'
+
+
+def test_large_sparse_continuous_dispatches_to_lradi():
+    A = matrixOperator(diags(-np.ones(1000), format='csr'), backendName='scipy')
+
     assert selectLyapunovAlgorithm(variant='auto', A=A, backendName='scipy', isContinuous=True) == 'lradi'
+
+
+def test_moderate_high_density_sparse_continuous_dispatches_to_dense_direct_solver():
+    A = matrixOperator(diags(-np.ones(300), format='csr') + np.ones((300, 300)) * 1e-6, backendName='scipy')
+
+    assert selectLyapunovAlgorithm(variant='auto', A=A, backendName='scipy', isContinuous=True) == 'bartelsStewart'
 
 
 def test_sparse_discrete_dispatches_to_lrsmith():
@@ -72,11 +84,41 @@ def test_sparse_auto_dispatch_rejects_non_scipy_backend():
         selectLyapunovAlgorithm(variant='auto', A=A, backendName='torch', isContinuous=True)
 
 
-def test_sparse_descriptor_dispatches_to_lradi_for_continuous_case():
+def test_small_sparse_descriptor_dispatches_to_dense_direct_solver():
     A = matrixOperator(-np.eye(3), backendName='scipy')
     E = matrixOperator(diags([1.0, 1.0, 1.0], format='csr'), backendName='scipy')
 
-    assert selectLyapunovAlgorithm(variant='auto', A=A, E=E, backendName='scipy', isContinuous=True) == 'lradi'
+    assert selectLyapunovAlgorithm(variant='auto', A=A, E=E, backendName='scipy', isContinuous=True) == 'bartelsStewart'
+
+
+def test_bartels_stewart_promotes_unsigned_rhs_before_forming_q():
+    A = matrixOperator(diags([-1.0, -2.0, -3.0], format='csr'), backendName='scipy')
+    B = matrixOperator(np.array([[1, 0, 0]], dtype=np.uint8), backendName='scipy')
+    algo = algorithmRegistry.get(category='lyapunov', variant='bartelsStewart', backendName='scipy')
+
+    X = algo.solve(A, None, B, trans=True).toBackendData()
+    qData = B.toBackendData().T.astype(float) @ B.toBackendData().astype(float)
+    aData = A.toBackendData().toarray().T
+    residual = aData @ X + X @ aData.T + qData
+
+    assert np.linalg.norm(residual) / np.linalg.norm(qData) < 1e-12
+    assert np.linalg.eigvalsh(X).min() >= 0
+
+
+def test_bartels_stewart_generalized_residual_is_refined_in_original_coordinates():
+    E = np.diag([1e-8, 3e-7, 2e-5, 1e-3])
+    A = -np.diag([2.0, 3.0, 4.0, 5.0]) @ E
+    B = np.ones((4, 1))
+    aOperator = matrixOperator(A, backendName='scipy')
+    eOperator = matrixOperator(E, backendName='scipy')
+    bOperator = matrixOperator(B, backendName='scipy')
+    algo = algorithmRegistry.get(category='lyapunov', variant='bartelsStewart', backendName='scipy')
+
+    X = algo.solve(aOperator, eOperator, bOperator).toBackendData()
+    qData = B @ B.T
+    residual = A @ X @ E.T + E @ X @ A.T + qData
+
+    assert np.linalg.norm(residual, 2) / np.linalg.norm(qData, 2) < 1e-10
 
 
 def test_lradi_option_recommendation_increases_budget_for_large_sparse_case():
