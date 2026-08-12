@@ -20,9 +20,17 @@ class lradi(backendLyapunov):
         self.lastResidualHistory: list[float] = []
         self.lastIterations = 0
         self.lastShifts: Any = None
+        self.lastConverged = False
+        self.lastResidual: float | None = None
+        self.lastTolerance: float | None = None
 
     def solve(self, A: operatorBase, E: operatorBase | None, B: operatorBase, trans: bool = False) -> Any:
         backend, n, bData = self.localBackend, A.shape[0], B.toBackendData()
+        self.lastResidualHistory = []
+        self.lastIterations = 0
+        self.lastConverged = False
+        self.lastResidual = None
+        self.lastTolerance = None
         if trans:
             bData = backend.linalg.transpose(bData)
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))    
@@ -36,6 +44,7 @@ class lradi(backendLyapunov):
         self.lastShifts = shifts
         res = backend.specialized.gramMatrixNorm(W, backend)
         bTol = res * tol
+        self.lastTolerance = float(bTol)
         self.lastResidualHistory = [float(res)]
         while res > bTol and j < maxIter:
             sigma = shifts[jShift]
@@ -69,6 +78,8 @@ class lradi(backendLyapunov):
                 Z_temp = self.compressFactor(backend.array.hstack(zColumns), n)
                 zColumns = [Z_temp]
         self.lastIterations = j
+        self.lastResidual = float(res)
+        self.lastConverged = bool(res <= bTol)
         from mor.operators.lowRank import lowRankOperator
         return lowRankOperator(backend.array.hstack(zColumns) if zColumns else backend.array.zeros((n, 0), dtype=A.dtype), backendName=backend.name)
 

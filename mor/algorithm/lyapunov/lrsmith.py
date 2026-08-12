@@ -35,26 +35,25 @@ class lrsmith(backendLyapunov):
         if trans:
             bData = backend.linalg.transpose(bData)
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))
+        effectiveRhs = self._solveDescriptor(E, bData, trans=trans)
         maxIter, tol, maxRank = self.options.get('maxIter', 200), self.options.get('tol', 1e-10), self.options.get('maxRank', None)
-        z = backend.array.copy(bData)
-        bNorm = backend.linalg.norm(backend.linalg.dot(bData.T, bData), ord=2)
+        z = backend.array.copy(effectiveRhs)
+        bNorm = backend.linalg.norm(backend.linalg.dot(effectiveRhs.T, effectiveRhs), ord=2)
         bTol = backend.array.max(backend.array.array([bNorm * tol, 1e-20]))
-        w = self._advance(A, E, bData, trans=trans)
-        res = backend.linalg.norm(backend.linalg.dot(w.T, w), ord=2)
-        self.lastResidualHistory = [float(res)]
-        self.lastIterations = 1
+        w = self._advance(A, E, effectiveRhs, trans=trans)
         self.lastTolerance = float(bTol)
-        for _ in range(maxIter - 1):
-            if res <= bTol:
+        for iteration in range(1, maxIter + 1):
+            transformedZ = self._advance(A, E, z, trans=trans)
+            res = self.discreteLyapunovResidualNorm(transformedZ, z, effectiveRhs)
+            self.lastResidualHistory.append(float(res))
+            self.lastIterations = iteration
+            if res <= bTol or iteration == maxIter:
                 break
             z = backend.array.hstack([z, w])
             if maxRank is not None and backend.array.shape(z)[1] > maxRank:
                 U, S, _ = backend.decomposition.svdDense(z, fullMatrices=False)
                 z = backend.linalg.dot(U[:, :maxRank], backend.array.diag(S[:maxRank]))
             w = self._advance(A, E, w, trans=trans)
-            res = backend.linalg.norm(backend.linalg.dot(w.T, w), ord=2)
-            self.lastResidualHistory.append(float(res))
-            self.lastIterations += 1
         self.lastResidual = float(res)
         self.lastConverged = bool(res <= bTol)
         return lowRankOperator(z, backendName=backend.name)
@@ -69,15 +68,27 @@ class lrsmith(backendLyapunov):
 
     def _advance(self, A: matrixOperator, E: matrixOperator | None, z: Any, trans: bool = False) -> Any:
         applied = A.apply(z, trans=trans)
+        return self._solveDescriptor(E, applied, trans=trans)
+
+    def _solveDescriptor(self, E: matrixOperator | None, rhs: Any, trans: bool = False) -> Any:
         if E is None:
-            return applied
+            return rhs
         eData = E.toBackendData()
         if trans:
             eData = self.localBackend.linalg.transpose(eData)
-        return self.localBackend.linalg.solve(eData, applied)
+        return self.localBackend.linalg.solve(eData, rhs)
 
     def discreteLyapunovResidualNorm(self, u: Any, v: Any, w: Any) -> float:
         backend = self.localBackend
-        utu, vtv, wtw, utv, utw, vtw = backend.linalg.dot(u.T, u), backend.linalg.dot(v.T, v), backend.linalg.dot(w.T, w), backend.linalg.dot(u.T, v), backend.linalg.dot(u.T, w), backend.linalg.dot(v.T, w)
-        tr2 = backend.array.sum(utu * utu) + backend.array.sum(vtv * vtv) + backend.array.sum(wtw * wtw) - 2 * backend.array.sum(utv ** 2) + 2 * backend.array.sum(utw ** 2) - 2 * backend.array.sum(vtw ** 2)        
-        return float(backend.array.sqrt(backend.array.max(backend.array.array([0.0, tr2]))))
+        factors = backend.array.hstack([u, v, w])
+        _, triangular = backend.linalg.qr(factors, mode='reduced')
+        uColumns, vColumns = u.shape[1], v.shape[1]
+        ru = triangular[:, :uColumns]
+        rv = triangular[:, uColumns:uColumns + vColumns]
+        rw = triangular[:, uColumns + vColumns:]
+        core = (
+            backend.linalg.dot(ru, backend.linalg.transpose(ru))
+            - backend.linalg.dot(rv, backend.linalg.transpose(rv))
+            + backend.linalg.dot(rw, backend.linalg.transpose(rw))
+        )
+        return float(backend.linalg.norm(core))

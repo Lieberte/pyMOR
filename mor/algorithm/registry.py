@@ -28,7 +28,8 @@ class algorithmRegistry:
         backend = cls.resolveBackend(category, backendName)
         if forceOptions:
             kwargs.update(forceOptions)
-            if 'variant' in forceOptions: variant = forceOptions['variant']
+            if 'variant' in forceOptions and (variant is None or variant == 'auto'):
+                variant = forceOptions['variant']
         
         # Priority check: if variant is specified and not 'auto', use it
         if variant is not None and variant != 'auto':

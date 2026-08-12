@@ -13,6 +13,7 @@ class lyapunovSolver:
         for contextName in ('A', 'B', 'C', 'E'):
             kwargs.pop(contextName, None)
         self.options = kwargs
+        self.lastInfo: dict[str, Any] = {}
 
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False, isContinuous: bool | None = None) -> Any:
         backend = self.localBackend
@@ -30,7 +31,16 @@ class lyapunovSolver:
             isContinuous=isContinuous,
         )
         self._lastAlgorithmName = algorithm.__class__.__name__
-        return algorithm.solve(A, E, B, trans=trans)
+        result = algorithm.solve(A, E, B, trans=trans)
+        self.lastInfo = {
+            'algorithm': self._lastAlgorithmName,
+            'converged': getattr(algorithm, 'lastConverged', True),
+            'iterations': getattr(algorithm, 'lastIterations', None),
+            'residual': getattr(algorithm, 'lastResidual', None),
+            'tolerance': getattr(algorithm, 'lastTolerance', None),
+            'spectralRadiusEstimate': getattr(algorithm, 'lastSpectralRadiusEstimate', None),
+        }
+        return result
 
     def validateInputs(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, C: matrixOperator) -> None:
         if A.shape[0] != A.shape[1]: raise ValueError(f"Matrix A must be square, got shape {A.shape}")

@@ -13,6 +13,8 @@ from scipy.sparse import diags
 
 from mor.algorithm.auto.svd import selectSVDVariant
 from mor.operators import matrixOperator
+from mor.algorithm.decompose.truncation.truncation import truncate
+from mor.backends import backendRegistry
 from mor.algorithm.registry import algorithmRegistry
 
 
@@ -154,6 +156,28 @@ def test_svd_auto_uses_dual_for_weighted_product_svd(rng):
     op = matrixOperator(rng.standard_normal((40, 8)), backendName='scipy')
     product = matrixOperator(np.eye(40), backendName='scipy')
     assert selectSVDVariant(backendName='scipy', xOperator=op, product=product) == 'dual'
+
+
+@pytest.mark.parametrize('rank', [-1, 1.5, True])
+def test_truncation_rejects_invalid_rank(rank):
+    with pytest.raises(ValueError, match='rank'):
+        truncate(np.array([3.0, 2.0, 1.0]), rank=rank, backend=backendRegistry.get('scipy'))
+
+
+@pytest.mark.parametrize('tol', [-0.1, 1.1, True])
+def test_truncation_rejects_invalid_tolerance(tol):
+    with pytest.raises(ValueError, match='tol'):
+        truncate(np.array([3.0, 2.0, 1.0]), tol=tol, backend=backendRegistry.get('scipy'))
+
+
+def test_explicit_svd_variant_is_not_overridden_by_force_options(rng):
+    op = matrixOperator(rng.standard_normal((12, 5)), backendName='scipy')
+
+    algorithm = algorithmRegistry.get(
+        category='svd', variant='economic', forceOptions={'variant': 'dual'}, backendName='scipy', xOperator=op
+    )
+
+    assert algorithm.__class__.__name__ == 'economicSVD'
 
 
 def test_svd_auto_uses_dual_for_sparse_tall_operator():

@@ -158,10 +158,47 @@ def test_lrsmith_descriptor_case_matches_transformed_discrete_problem():
 
     z = smith.solve(A, E, B)
     x = z.toBackendData()
-    x_ref = linalg.solve_discrete_lyapunov(f_data, b_data @ b_data.T)
+    g_data = np.linalg.solve(e_data, b_data)
+    x_ref = linalg.solve_discrete_lyapunov(f_data, g_data @ g_data.T)
 
-    assert _discrete_relative_residual(f_data, x, b_data) < 1e-10
+    assert _discrete_relative_residual(f_data, x, g_data) < 1e-10
     assert np.linalg.norm(x - x_ref) / np.linalg.norm(x_ref) < 1e-10
+
+
+def test_lrsmith_descriptor_solution_satisfies_generalized_equation():
+    a_data = np.diag([0.2, 0.3, 0.4])
+    e_data = np.diag([1.0, 2.0, 4.0])
+    b_data = np.ones((3, 1))
+    smith = algorithmRegistry.get(category='lyapunov', variant='lrsmith', backendName='scipy', maxIter=100, tol=1e-12)
+
+    z = smith.solve(
+        matrixOperator(a_data, backendName='scipy'),
+        matrixOperator(e_data, backendName='scipy'),
+        matrixOperator(b_data, backendName='scipy'),
+    )
+    x = z.toBackendData()
+    residual = a_data @ x @ a_data.T - e_data @ x @ e_data.T + b_data @ b_data.T
+
+    assert np.linalg.norm(residual) / np.linalg.norm(b_data @ b_data.T) < 1e-10
+    assert smith.lastConverged
+
+
+def test_lrsmith_max_rank_uses_true_residual_for_convergence():
+    a_data = np.diag(np.linspace(0.1, 0.8, 20))
+    b_data = np.column_stack([np.ones(20), np.linspace(0.5, 1.5, 20)])
+    smith = algorithmRegistry.get(
+        category='lyapunov', variant='lrsmith', backendName='scipy', maxIter=80, tol=1e-12, maxRank=2
+    )
+
+    z = smith.solve(
+        matrixOperator(a_data, backendName='scipy'),
+        None,
+        matrixOperator(b_data, backendName='scipy'),
+    )
+    actual = _discrete_relative_residual(a_data, z.toBackendData(), b_data)
+
+    assert actual > 1e-4
+    assert not smith.lastConverged
 
 
 def test_lrsmith_sparse_operator_path_avoids_dense_materialization_for_iterations():
