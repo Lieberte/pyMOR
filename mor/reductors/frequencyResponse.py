@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from numbers import Integral
+
 import numpy as np
 from scipy import linalg
 
+from mor.models.frequency import frequencyPoints, prepareTransferData, solveShiftedSystem, validateFrequencies
 from mor.models.lti import ltiModel
 from mor.operators import matrixOperator
 from .balancedTruncation import reducedSystem
@@ -16,41 +19,63 @@ class frequencyResponseReductor:
     def reduce(self, model: ltiModel, *, order: int) -> reducedSystem:
         if (self.backendName or model.backendName) != 'scipy':
             raise NotImplementedError("Frequency-response reduction currently supports only scipy.")
-        frequencies = np.asarray(self.frequencies, dtype=float).reshape(-1)
-        if frequencies.size == 0 or np.any(frequencies < 0):
-            raise ValueError("frequencies must be non-empty and non-negative.")
-        if order <= 0:
-            raise ValueError("order must be positive.")
-        data = model.toNumpy()
-        dtype = np.result_type(data['A'].dtype, np.float64)
-        A = np.asarray(data['A'], dtype=dtype)
-        E = np.eye(model.order, dtype=dtype) if data['E'] is None else np.asarray(data['E'], dtype=dtype)
-        B = np.asarray(data['B'], dtype=dtype)
-        C = np.asarray(data['C'], dtype=dtype)
-        if B.ndim == 1:
-            B = B.reshape(-1, 1)
+        frequencies = validateFrequencies(self.frequencies, allowEmpty=False)
+        if not isinstance(order, Integral) or isinstance(order, bool) or order <= 0:
+            raise ValueError("order must be a positive integer.")
+        rawData = {
+            'A': model.A.toBackendData(),
+            'B': model.B.toBackendData(),
+            'C': model.C.toBackendData(),
+            'D': model.D.toBackendData() if model.D is not None else None,
+            'E': model.E.toBackendData() if model.E is not None else None,
+        }
+        A, B, C, E, D = prepareTransferData(
+            rawData['A'], rawData['B'], rawData['C'], rawData['E'], rawData['D'], forceComplex=False
+        )
+        isComplexDynamics = any(
+            np.issubdtype(value.dtype, np.complexfloating)
+            for name, value in rawData.items()
+            if name != 'D'
+            if value is not None
+        )
         rightSnapshots = []
         leftSnapshots = []
-        for frequency in frequencies:
-            right = linalg.solve(1j * frequency * E - A, B)
-            left = linalg.solve((-1j * frequency * E - A).T, C.T)
-            rightSnapshots.extend((right.real, right.imag))
-            leftSnapshots.extend((left.real, left.imag))
-        rightBasis, rightValues, _ = linalg.svd(np.hstack(rightSnapshots), full_matrices=False)
-        leftBasis, leftValues, _ = linalg.svd(np.hstack(leftSnapshots), full_matrices=False)
-        availableOrder = min(rightBasis.shape[1], leftBasis.shape[1])
+        Ah = A.conj().T
+        Eh = E.conj().T
+        Ch = C.conj().T
+        for point in frequencyPoints(frequencies, isContinuous=model.isContinuous):
+            right = solveShiftedSystem(A, E, B, point)
+            left = solveShiftedSystem(Ah, Eh, Ch, point.conjugate())
+            if isComplexDynamics:
+                rightSnapshots.append(right)
+                leftSnapshots.append(left)
+            else:
+                rightSnapshots.extend((right.real, right.imag))
+                leftSnapshots.extend((left.real, left.imag))
+        rightSnapshotMatrix = np.hstack(rightSnapshots)
+        leftSnapshotMatrix = np.hstack(leftSnapshots)
+        rightBasis, rightValues, _ = linalg.svd(rightSnapshotMatrix, full_matrices=False)
+        leftBasis, leftValues, _ = linalg.svd(leftSnapshotMatrix, full_matrices=False)
+        rightRank = self._numericalRank(rightValues, rightSnapshotMatrix.shape)
+        leftRank = self._numericalRank(leftValues, leftSnapshotMatrix.shape)
+        availableOrder = min(rightRank, leftRank)
         if order > availableOrder:
-            raise ValueError(f"Requested order {order} exceeds snapshot rank bound {availableOrder}.")
+            raise ValueError(f"Requested order {order} exceeds numerical snapshot rank {availableOrder}.")
         V = rightBasis[:, :order]
         W = leftBasis[:, :order]
-        Dr = data['D'] if data['D'] is not None else np.zeros((model.outputDim, model.inputDim), dtype=dtype)
+        Wh = W.conj().T
+        Er = Wh @ (E @ V)
+        descriptorKind = model.descriptorKind
+        projectedDescriptorRank = int(np.linalg.matrix_rank(Er))
+        if descriptorKind == 'regular' and projectedDescriptorRank < order:
+            raise ValueError("Projected descriptor is singular; left and right snapshot spaces are incompatible.")
         return reducedSystem(
             isContinuous=model.isContinuous,
-            Ar=matrixOperator(W.T @ A @ V, backendName='scipy'),
-            Br=matrixOperator(W.T @ B, backendName='scipy'),
+            Ar=matrixOperator(Wh @ (A @ V), backendName='scipy'),
+            Br=matrixOperator(Wh @ B, backendName='scipy'),
             Cr=matrixOperator(C @ V, backendName='scipy'),
-            Dr=matrixOperator(Dr, backendName='scipy'),
-            Er=matrixOperator(W.T @ E @ V, backendName='scipy'),
+            Dr=matrixOperator(D, backendName='scipy'),
+            Er=matrixOperator(Er, backendName='scipy'),
             hsv=[],
             order=order,
             solverInfo={
@@ -58,5 +83,17 @@ class frequencyResponseReductor:
                 'trainingFrequencies': int(frequencies.size),
                 'rightSnapshotTail': float(np.linalg.norm(rightValues[order:])),
                 'leftSnapshotTail': float(np.linalg.norm(leftValues[order:])),
+                'rightSnapshotRank': rightRank,
+                'leftSnapshotRank': leftRank,
+                'projectedDescriptorRank': projectedDescriptorRank,
+                'projectedDescriptorCondition': float(np.linalg.cond(Er)),
+                'descriptorKind': descriptorKind,
             },
         )
+
+    @staticmethod
+    def _numericalRank(singularValues: np.ndarray, shape: tuple[int, int]) -> int:
+        if singularValues.size == 0 or singularValues[0] == 0:
+            return 0
+        tolerance = max(shape) * np.finfo(singularValues.dtype).eps * singularValues[0]
+        return int(np.count_nonzero(singularValues > tolerance))

@@ -170,6 +170,42 @@ def test_balanced_truncation_rejects_unstable_continuous_model():
         balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=1)
 
 
+@pytest.mark.parametrize('operator_factory', [
+    lambda unstable, zero: unstable + zero,
+    lambda unstable, zero: 1.0 * (unstable + zero),
+])
+def test_balanced_truncation_rejects_unstable_composed_operator(operator_factory):
+    unstable = matrixOperator(np.diag([0.2, -1.0]), backendName='scipy')
+    zero = matrixOperator(np.zeros((2, 2)), backendName='scipy')
+    model = ltiModel(
+        operator_factory(unstable, zero),
+        matrixOperator(np.ones((2, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 2)), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    with pytest.raises(ValueError, match='stable continuous'):
+        balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=1)
+
+
+def test_balanced_truncation_checks_large_composed_diagonal_without_materializing(monkeypatch):
+    from scipy.sparse import diags
+
+    order = 1_000
+    unstable = matrixOperator(diags([-1.0] * (order - 1) + [0.2], format='csr'), backendName='scipy')
+    A = unstable + 0.0 * unstable
+    model = ltiModel(
+        A,
+        matrixOperator(np.ones((order, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, order)), backendName='scipy'),
+        backendName='scipy',
+    )
+    monkeypatch.setattr(A, 'toNumpy', lambda: (_ for _ in ()).throw(AssertionError('materialized A')))
+
+    with pytest.raises(ValueError, match='stable continuous'):
+        balancedTruncationReductor(globalBackendName='scipy')._validateStability(model, True)
+
+
 def test_balanced_truncation_preserves_symmetric_unstable_modes():
     A = np.diag([0.2, -1.0, -2.0, -3.0])
     model = ltiModel(
@@ -215,6 +251,7 @@ def test_descriptor_balanced_truncation_uses_e_weighted_cross_gramian(rng):
     rom = balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
 
     np.testing.assert_allclose(rom.Er.toNumpy(), np.eye(2), atol=1e-10)
+    assert rom.solverInfo['descriptorKind'] == 'regular'
 
 
 def test_balanced_truncation_rejects_singular_descriptor():
@@ -223,6 +260,21 @@ def test_balanced_truncation_rejects_singular_descriptor():
         matrixOperator(np.ones((3, 1)), backendName='scipy'),
         matrixOperator(np.ones((1, 3)), backendName='scipy'),
         E=matrixOperator(np.diag([1.0, 1.0, 0.0]), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    with pytest.raises(NotImplementedError, match='spectral projectors'):
+        balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
+
+
+def test_balanced_truncation_rejects_singular_composed_descriptor():
+    singular = matrixOperator(np.diag([1.0, 1.0, 0.0]), backendName='scipy')
+    zero = matrixOperator(np.zeros((3, 3)), backendName='scipy')
+    model = ltiModel(
+        matrixOperator(-np.eye(3), backendName='scipy'),
+        matrixOperator(np.ones((3, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 3)), backendName='scipy'),
+        E=singular + zero,
         backendName='scipy',
     )
 
@@ -257,7 +309,123 @@ def test_frequency_response_reductor_handles_singular_descriptor():
         for frequency in frequencies
     ])
     assert rom.order == 3
+    assert rom.solverInfo['descriptorKind'] == 'singular'
     assert np.linalg.norm(reduced - full) / np.linalg.norm(full) < 1e-10
+
+
+def test_frequency_response_reductor_samples_discrete_model_on_unit_circle():
+    model = ltiModel(
+        matrixOperator(np.diag([0.2, 0.6]), backendName='scipy'),
+        matrixOperator(np.array([[1.0], [0.5]]), backendName='scipy'),
+        matrixOperator(np.array([[0.3, 1.0]]), backendName='scipy'),
+        backendName='scipy',
+        isContinuous=False,
+    )
+
+    reduced = frequencyResponseReductor(
+        globalBackendName='scipy', frequencies=[0.0]
+    ).reduce(model, order=1).model
+
+    assert reduced.timeDomain == 'discrete'
+    np.testing.assert_allclose(reduced.frequencyResponse([0.0]), model.frequencyResponse([0.0]))
+
+
+def test_frequency_response_reductor_preserves_complex_system_at_full_order():
+    A = np.array([[-1.0 + 0.4j, 0.2], [-0.1j, -2.0 - 0.3j]])
+    B = np.array([[1.0 + 0.5j], [0.3 - 0.2j]])
+    C = np.array([[0.7 - 0.1j, 1.0 + 0.4j]])
+    model = ltiModel(
+        matrixOperator(A, backendName='scipy'),
+        matrixOperator(B, backendName='scipy'),
+        matrixOperator(C, backendName='scipy'),
+        backendName='scipy',
+    )
+
+    reduced = frequencyResponseReductor(
+        globalBackendName='scipy', frequencies=[0.2, 1.3]
+    ).reduce(model, order=2).model
+
+    assert np.iscomplexobj(reduced.A.toNumpy())
+    np.testing.assert_allclose(
+        reduced.frequencyResponse([0.0, 0.7, 2.0]),
+        model.frequencyResponse([0.0, 0.7, 2.0]),
+        rtol=1e-11,
+        atol=1e-11,
+    )
+
+
+@pytest.mark.parametrize('order', [True, 1.5, 0, -1])
+def test_frequency_response_reductor_rejects_invalid_order(order):
+    model = ltiModel(
+        matrixOperator(-np.eye(2), backendName='scipy'),
+        matrixOperator(np.ones((2, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 2)), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    with pytest.raises(ValueError, match='positive integer'):
+        frequencyResponseReductor('scipy', frequencies=[1.0]).reduce(model, order=order)
+
+
+@pytest.mark.parametrize('frequencies', [[], [np.nan], [np.inf]])
+def test_frequency_response_reductor_rejects_invalid_frequencies(frequencies):
+    model = ltiModel(
+        matrixOperator(-np.eye(2), backendName='scipy'),
+        matrixOperator(np.ones((2, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 2)), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    with pytest.raises(ValueError, match='frequencies'):
+        frequencyResponseReductor('scipy', frequencies=frequencies).reduce(model, order=1)
+
+
+def test_frequency_response_reductor_rejects_order_above_numerical_snapshot_rank():
+    model = ltiModel(
+        matrixOperator(-np.diag([1.0, 2.0, 3.0]), backendName='scipy'),
+        matrixOperator(np.array([[1.0], [0.0], [0.0]]), backendName='scipy'),
+        matrixOperator(np.array([[1.0, 0.0, 0.0]]), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    with pytest.raises(ValueError, match='numerical snapshot rank 1'):
+        frequencyResponseReductor('scipy', frequencies=[0.0, 0.0]).reduce(model, order=2)
+
+
+def test_frequency_response_reductor_rejects_incompatible_snapshot_spaces():
+    model = ltiModel(
+        matrixOperator(-np.diag([1.0, 2.0]), backendName='scipy'),
+        matrixOperator(np.array([[1.0], [0.0]]), backendName='scipy'),
+        matrixOperator(np.array([[0.0, 1.0]]), backendName='scipy'),
+        backendName='scipy',
+    )
+
+    with pytest.raises(ValueError, match='Projected descriptor is singular'):
+        frequencyResponseReductor('scipy', frequencies=[0.0]).reduce(model, order=1)
+
+
+def test_frequency_response_reductor_keeps_sparse_training_operators_unmaterialized(monkeypatch):
+    from scipy.sparse import diags
+
+    A = matrixOperator(diags([-1.0, -2.0, -3.0], format='csr'), backendName='scipy')
+    E = matrixOperator(diags([1.0, 1.5, 2.0], format='csr'), backendName='scipy')
+    model = ltiModel(
+        A,
+        matrixOperator(np.ones((3, 1)), backendName='scipy'),
+        matrixOperator(np.ones((1, 3)), backendName='scipy'),
+        E=E,
+        backendName='scipy',
+    )
+    monkeypatch.setattr(A, 'toNumpy', lambda: (_ for _ in ()).throw(AssertionError('materialized A')))
+    monkeypatch.setattr(E, 'toNumpy', lambda: (_ for _ in ()).throw(AssertionError('materialized E')))
+
+    reduced = frequencyResponseReductor(
+        'scipy', frequencies=[0.1, 1.0, 10.0]
+    ).reduce(model, order=2)
+
+    assert reduced.order == 2
+    assert reduced.solverInfo['rightSnapshotRank'] >= 2
+    assert reduced.solverInfo['leftSnapshotRank'] >= 2
 
 
 def test_balanced_truncation_rejects_unconverged_gramian():

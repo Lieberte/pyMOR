@@ -138,6 +138,9 @@ class balancedTruncationReductor:
                 'controllability': controllabilityInfo,
                 'observability': observabilityInfo,
                 'hankelErrorBound': float(2.0 * fullHsv[retainedOrder:numericalRank].sum()),
+                'descriptorKind': model.classifyDescriptor(
+                    maxSize=self.options.get('descriptorRankCheckMaxSize', 512)
+                ),
             }
         )
 
@@ -236,25 +239,22 @@ class balancedTruncationReductor:
                 raise ValueError(f"Balanced truncation requires a stable discrete model, got spectral radius {radius:.6g}.")
             return
         n = model.order
-        if not isinstance(model.A, matrixOperator):
+        import numpy as np
+
+        descriptorLimit = self.options.get('descriptorRankCheckMaxSize', 512)
+        descriptorKind = model.classifyDescriptor(maxSize=descriptorLimit)
+        if descriptorKind == 'singular':
+            raise NotImplementedError(
+                "Balanced truncation for singular descriptor systems requires spectral projectors; "
+                "use a descriptor-specific or frequency-response reductor."
+            )
+        stabilityLimit = self.options.get('stabilityCheckMaxSize', 300)
+        if n > stabilityLimit and not model.A.isDiagonal:
             return
-        if model.E is not None and isinstance(model.E, matrixOperator) and n <= self.options.get('descriptorRankCheckMaxSize', 512):
-            import numpy as np
-            if np.linalg.matrix_rank(model.E.toNumpy()) < n:
-                raise NotImplementedError(
-                    "Balanced truncation for singular descriptor systems requires spectral projectors; "
-                    "use a descriptor-specific or frequency-response reductor."
-                )
-        if n > self.options.get('stabilityCheckMaxSize', 300) and not model.A.isDiagonal:
-            return
-        backend = model.localBackend
         try:
-            if model.E is None:
-                eigenvalues = backend.eigen.eigvals(model.A.toBackendData())
-            else:
-                eigenvalues = backend.eigen.eigvalsGeneralized(model.A.toBackendData(), model.E.toBackendData())
-            maxRealPart = float(backend.array.max(backend.array.real(eigenvalues)))
-        except Exception:
+            eigenvalues = model.poles()
+            maxRealPart = float(np.max(np.real(eigenvalues)))
+        except (ValueError, TypeError, np.linalg.LinAlgError):
             return
         if maxRealPart >= 0:
             raise ValueError(f"Balanced truncation requires a stable continuous model, got spectral abscissa {maxRealPart:.6g}.")

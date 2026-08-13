@@ -1,12 +1,26 @@
 from typing import Tuple, Any
+from numbers import Number
 from .operatorsBase import operatorBase
 
 
 class scaledOperator(operatorBase):
     def __init__(self, operator: operatorBase, scalar: float, backendName: str | None = None):
-        super().__init__(backendName or operator.backendName)
-        self.operator = operator
-        self.scalar = scalar
+        if not isinstance(operator, operatorBase):
+            raise TypeError("operator must be an operatorBase")
+        if not isinstance(scalar, Number):
+            raise TypeError("scalar must be a number")
+        resolvedBackendName = backendName or operator.backendName
+        if resolvedBackendName != operator.backendName:
+            raise ValueError(
+                f"Requested backend {resolvedBackendName} does not match operator backend {operator.backendName}"
+            )
+        super().__init__(resolvedBackendName)
+        if isinstance(operator, scaledOperator):
+            self.operator = operator.operator
+            self.scalar = operator.scalar * scalar
+        else:
+            self.operator = operator
+            self.scalar = scalar
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -14,7 +28,7 @@ class scaledOperator(operatorBase):
 
     @property
     def dtype(self) -> Any:
-        return self.operator.dtype
+        return self._resultDtype(self.operator.dtype, self.scalar)
 
     @property
     def isSparse(self) -> bool:
@@ -39,6 +53,9 @@ class scaledOperator(operatorBase):
     def toBackendData(self) -> Any:
         backend = self.localBackend
         return backend.array.toArray(self.operator.toBackendData()) * self.scalar
+
+    def diagonal(self) -> Any:
+        return self.operator.diagonal() * self.scalar
 
     def __mul__(self, scalar: float) -> 'scaledOperator':
         return scaledOperator(self.operator, self.scalar * scalar, backendName=self.backendName)

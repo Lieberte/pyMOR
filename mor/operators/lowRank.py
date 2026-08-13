@@ -8,6 +8,14 @@ class lowRankOperator(operatorBase):
         self.left = self.localBackend.array.toArray(left)
         self.right = self.localBackend.array.toArray(right) if right is not None else None
         self._validate()
+        if self.right is not None:
+            dtype = self._resultDtype(self.left.dtype, self.right.dtype)
+            if self.backendName == 'torch':
+                self.left = self.left.to(dtype=dtype)
+                self.right = self.right.to(dtype=dtype)
+            else:
+                self.left = self.left.astype(dtype, copy=False)
+                self.right = self.right.astype(dtype, copy=False)
 
     def _validate(self):
         if len(self.left.shape) != 2:
@@ -27,7 +35,10 @@ class lowRankOperator(operatorBase):
 
     @property
     def dtype(self) -> Any:
-        return getattr(self.left, 'dtype', None)
+        leftDtype = getattr(self.left, 'dtype', None)
+        if self.right is None:
+            return leftDtype
+        return self._resultDtype(leftDtype, getattr(self.right, 'dtype', None))
 
     @property
     def isSparse(self) -> bool:
@@ -45,19 +56,25 @@ class lowRankOperator(operatorBase):
 
     @property
     def T(self) -> 'lowRankOperator':
-        if self.right is None: return self
-        return lowRankOperator(self.right, self.left, backendName=self.backendName)
+        backend = self.localBackend
+        if self.right is None:
+            return lowRankOperator(backend.linalg.conj(self.left), backendName=self.backendName)
+        return lowRankOperator(
+            backend.linalg.conj(self.right),
+            backend.linalg.conj(self.left),
+            backendName=self.backendName,
+        )
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        xData = x.toBackendData() if isinstance(x, operatorBase) else backend.array.toArray(x)
-        if self.right is None:
-            tmp = backend.linalg.dot(backend.linalg.transpose(self.left), xData)
-            return backend.linalg.dot(self.left, tmp)
+        xData = self._inputData(x)
+        right = self.left if self.right is None else self.right
+        if trans:
+            left, right = backend.linalg.conj(right), backend.linalg.conj(self.left)
         else:
-            l, r = (self.right, self.left) if trans else (self.left, self.right)
-            tmp = backend.linalg.dot(backend.linalg.transpose(r), xData)
-            return backend.linalg.dot(l, tmp)
+            left = self.left
+        rightAdjoint = backend.linalg.transpose(backend.linalg.conj(right))
+        return backend.linalg.dot(left, backend.linalg.dot(rightAdjoint, xData))
 
     def __mul__(self, scalar: float) -> 'lowRankOperator':
         if not isinstance(scalar, Number):
@@ -73,16 +90,17 @@ class lowRankOperator(operatorBase):
         backend = self.localBackend
         l_np = backend.array.toNumpy(self.left)
         if self.right is None:
-            import numpy as np
-            return l_np @ l_np.T
+            return l_np @ l_np.conj().T
         r_np = backend.array.toNumpy(self.right)
-        return l_np @ r_np.T
+        return l_np @ r_np.conj().T
 
     def toBackendData(self) -> Any:
         backend = self.localBackend
+        leftAdjoint = backend.linalg.transpose(backend.linalg.conj(self.left))
         if self.right is None:
-            return backend.linalg.dot(self.left, backend.linalg.transpose(self.left))
-        return backend.linalg.dot(self.left, backend.linalg.transpose(self.right))
+            return backend.linalg.dot(self.left, leftAdjoint)
+        rightAdjoint = backend.linalg.transpose(backend.linalg.conj(self.right))
+        return backend.linalg.dot(self.left, rightAdjoint)
 
     def __repr__(self) -> str:
         kind = "Symmetric" if self.right is None else "General"

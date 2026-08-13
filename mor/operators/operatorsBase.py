@@ -40,6 +40,36 @@ class operatorBase(ABC):
     def toNumpy(self) -> Any:
         return self.localBackend.array.toNumpy(self.toBackendData())
 
+    def diagonal(self) -> Any:
+        if not self.isDiagonal:
+            raise ValueError("Operator is not diagonal")
+        raise NotImplementedError(f"{self.operatorKind} does not expose diagonal entries")
+
+    def _resultDtype(self, *values: Any) -> Any:
+        if self.backendName == 'torch':
+            import torch
+
+            dtype = values[0]
+            for value in values[1:]:
+                if isinstance(value, torch.dtype):
+                    dtype = torch.promote_types(dtype, value)
+                else:
+                    dtype = torch.result_type(torch.empty((), dtype=dtype), value)
+            return dtype
+
+        import numpy as np
+
+        return np.result_type(*values)
+
+    def _inputData(self, value: Any) -> Any:
+        if isinstance(value, operatorBase):
+            if value.backendName != self.backendName:
+                raise ValueError(
+                    f"Input operator backend {value.backendName} does not match operator backend {self.backendName}"
+                )
+            return value.toBackendData()
+        return self.localBackend.array.toArray(value)
+
     @property
     def operatorKind(self) -> str:
         return type(self).__name__

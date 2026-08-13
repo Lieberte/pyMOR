@@ -62,12 +62,22 @@ class matrixOperator(operatorBase):
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        xData = x.toBackendData() if isinstance(x, operatorBase) else backend.array.toArray(x)
+        xData = self._inputData(x)
         data = backend.linalg.transpose(self.data) if trans else self.data
         return backend.linalg.dot(data, xData)
 
     def toBackendData(self) -> Any:
         return self.data
+
+    def diagonal(self) -> Any:
+        if not self.isDiagonal:
+            raise ValueError("Operator is not diagonal")
+        if self.isSparse:
+            return self.data.diagonal()
+        if self.backendName == 'torch':
+            return self.data.diagonal()
+        import numpy as np
+        return np.diag(self.data)
 
     def __mul__(self, scalar: float) -> 'matrixOperator':
         if not isinstance(scalar, Number):
