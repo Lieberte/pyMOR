@@ -9,10 +9,23 @@ from scripts.mor_application_cases import (
     loadCaseData,
     referenceMagnitudeRelativeError,
     runReductionCase,
+    transferResponse,
 )
 
 
 pytestmark = pytest.mark.application
+
+
+def test_transfer_response_uses_unit_circle_for_discrete_models():
+    A = np.diag([0.2, 0.5])
+    B = np.ones((2, 1))
+    C = np.ones((1, 2))
+
+    response = transferResponse(A, B, C, [0.0], isContinuous=False)
+    expected = C @ np.linalg.solve(np.eye(2) - A, B)
+
+    np.testing.assert_allclose(response[0], expected)
+    assert not np.allclose(response, transferResponse(A, B, C, [0.0], isContinuous=True))
 
 
 def _requireData(case):

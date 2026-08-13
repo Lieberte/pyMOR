@@ -6,8 +6,16 @@ class sumOperator(operatorBase):
         if not operators: raise ValueError("Operators list cannot be empty")
         if any(not isinstance(op, operatorBase) for op in operators):
             raise TypeError("All entries must be operatorBase instances")
-        super().__init__(backendName or operators[0].backendName)
-        self.operators = operators
+        flattened = []
+        for operator in operators:
+            flattened.extend(operator.operators if isinstance(operator, sumOperator) else [operator])
+        resolvedBackendName = backendName or flattened[0].backendName
+        if resolvedBackendName != flattened[0].backendName:
+            raise ValueError(
+                f"Requested backend {resolvedBackendName} does not match operator backend {flattened[0].backendName}"
+            )
+        super().__init__(resolvedBackendName)
+        self.operators = flattened
         self._validate()
 
     def _validate(self):
@@ -25,7 +33,7 @@ class sumOperator(operatorBase):
 
     @property
     def dtype(self) -> Any:
-        return self.operators[0].dtype
+        return self._resultDtype(*(op.dtype for op in self.operators))
 
     @property
     def isSparse(self) -> bool:
@@ -70,6 +78,14 @@ class sumOperator(operatorBase):
         for op in self.operators[1:]:
             data = data + backend.array.toArray(op.toBackendData())
         return data
+
+    def diagonal(self) -> Any:
+        if not self.isDiagonal:
+            raise ValueError("Operator is not diagonal")
+        result = self.operators[0].diagonal()
+        for operator in self.operators[1:]:
+            result = result + operator.diagonal()
+        return result
 
     def __mul__(self, scalar: float) -> 'sumOperator':
         return sumOperator([op * scalar for op in self.operators], backendName=self.backendName)

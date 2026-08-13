@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from scipy.sparse import diags, issparse
 
-from mor.operators import matrixOperator, lowRankOperator
+from mor.operators import matrixOperator, lowRankOperator, scaledOperator, sumOperator
 
 
 @pytest.fixture
@@ -77,6 +77,20 @@ def test_low_rank_apply_accepts_matrix_operator_input(rng):
     assert out.shape == (5, 3)
 
 
+@pytest.mark.parametrize('operator_factory', [
+    lambda: matrixOperator(np.eye(2), backendName='scipy'),
+    lambda: lowRankOperator(np.eye(2), backendName='scipy'),
+    lambda: matrixOperator(np.eye(2), backendName='scipy') + matrixOperator(np.eye(2), backendName='scipy'),
+])
+def test_operator_apply_rejects_input_operator_from_another_backend(operator_factory):
+    torch = pytest.importorskip('torch')
+    operator = operator_factory()
+    x = matrixOperator(torch.ones((2, 1)), backendName='torch')
+
+    with pytest.raises(ValueError, match='Input operator backend torch does not match operator backend scipy'):
+        operator.apply(x)
+
+
 def test_low_rank_to_backend_data_symmetric_and_general(rng):
     L = rng.standard_normal((6, 2))
     R = rng.standard_normal((6, 2))  # general factor L R^T needs matching inner dim
@@ -88,6 +102,56 @@ def test_low_rank_to_backend_data_symmetric_and_general(rng):
         lowRankOperator(L, R, backendName='scipy').toBackendData(),
         L @ R.T,
     )
+
+
+def test_complex_low_rank_uses_adjoint_factors_and_preserves_transpose_contract(rng):
+    left = rng.standard_normal((4, 2)) + 1j * rng.standard_normal((4, 2))
+    right = rng.standard_normal((3, 2)) + 1j * rng.standard_normal((3, 2))
+    symmetric = lowRankOperator(left, backendName='scipy')
+    general = lowRankOperator(left, right, backendName='scipy')
+    x = rng.standard_normal((4, 2)) + 1j * rng.standard_normal((4, 2))
+
+    np.testing.assert_allclose(symmetric.toBackendData(), left @ left.conj().T)
+    np.testing.assert_allclose(general.toBackendData(), left @ right.conj().T)
+    np.testing.assert_allclose(general.T.toBackendData(), general.toBackendData().T)
+    np.testing.assert_allclose(general.apply(x, trans=True), general.toBackendData().T @ x)
+
+
+def test_complex_symmetric_low_rank_transpose_is_not_mistaken_for_adjoint(rng):
+    left = rng.standard_normal((4, 2)) + 1j * rng.standard_normal((4, 2))
+    op = lowRankOperator(left, backendName='scipy')
+
+    np.testing.assert_allclose(op.T.toBackendData(), op.toBackendData().T)
+    np.testing.assert_allclose(op.toBackendData(), op.toBackendData().conj().T)
+
+
+def test_low_rank_transpose_apply_does_not_construct_temporary_operator(monkeypatch, rng):
+    left = rng.standard_normal((4, 2)) + 1j * rng.standard_normal((4, 2))
+    right = rng.standard_normal((3, 2)) + 1j * rng.standard_normal((3, 2))
+    op = lowRankOperator(left, right, backendName='scipy')
+    x = rng.standard_normal((4, 2)) + 1j * rng.standard_normal((4, 2))
+    monkeypatch.setattr(
+        lowRankOperator,
+        'T',
+        property(lambda self: (_ for _ in ()).throw(AssertionError('constructed transpose operator'))),
+    )
+
+    result = op.apply(x, trans=True)
+
+    np.testing.assert_allclose(result, (left @ right.conj().T).T @ x)
+
+
+def test_torch_complex_low_rank_uses_adjoint_and_promoted_dtype():
+    torch = pytest.importorskip('torch')
+    left = torch.tensor([[1.0 + 2.0j], [3.0 - 1.0j]], dtype=torch.complex64)
+    right = torch.tensor([[2.0 - 1.0j], [1.0 + 4.0j], [0.5 + 0.0j]], dtype=torch.complex128)
+    op = lowRankOperator(left, right, backendName='torch')
+
+    expected = left.to(torch.complex128) @ right.conj().mT
+
+    assert op.dtype == op.toBackendData().dtype == torch.complex128
+    torch.testing.assert_close(op.toBackendData(), expected)
+    torch.testing.assert_close(op.T.toBackendData(), expected.mT)
 
 
 def test_low_rank_negative_scaling_preserves_operator_value(rng):
@@ -112,3 +176,60 @@ def test_sum_operator_rejects_non_operator_entry(rng):
 
     with pytest.raises(TypeError, match='operatorBase'):
         _ = op + np.eye(3)
+
+
+@pytest.mark.parametrize('operator_type', [sumOperator, scaledOperator])
+def test_composed_operator_rejects_explicit_backend_mismatch(operator_type):
+    op = matrixOperator(np.eye(2), backendName='scipy')
+
+    with pytest.raises(ValueError, match='Requested backend torch does not match operator backend scipy'):
+        if operator_type is sumOperator:
+            operator_type([op], backendName='torch')
+        else:
+            operator_type(op, 2.0, backendName='torch')
+
+
+def test_scipy_composed_operator_dtype_matches_promoted_data():
+    float32 = matrixOperator(np.eye(2, dtype=np.float32), backendName='scipy')
+    float64 = matrixOperator(np.eye(2, dtype=np.float64), backendName='scipy')
+
+    summed = float32 + float64
+    scaled = scaledOperator(float32, np.float64(0.5))
+
+    assert summed.dtype == summed.toBackendData().dtype == np.dtype(np.float64)
+    assert scaled.dtype == scaled.toBackendData().dtype == np.dtype(np.float64)
+
+
+def test_torch_composed_operator_dtype_matches_promoted_data():
+    torch = pytest.importorskip('torch')
+    float32 = matrixOperator(torch.eye(2, dtype=torch.float32), backendName='torch')
+    float64 = matrixOperator(torch.eye(2, dtype=torch.float64), backendName='torch')
+
+    summed = float32 + float64
+    scaled = scaledOperator(float32, np.float64(0.5))
+
+    assert summed.dtype == summed.toBackendData().dtype == torch.float64
+    assert scaled.dtype == scaled.toBackendData().dtype == torch.float32
+
+
+def test_nested_sum_operators_are_flattened(rng):
+    operators = [
+        matrixOperator(rng.standard_normal((3, 3)), backendName='scipy')
+        for _ in range(3)
+    ]
+
+    nested = (operators[0] + operators[1]) + operators[2]
+
+    assert len(nested.operators) == 3
+    assert all(not isinstance(operator, sumOperator) for operator in nested.operators)
+    np.testing.assert_allclose(nested.toBackendData(), sum(operator.toBackendData() for operator in operators))
+
+
+def test_nested_scaled_operators_merge_scalars(rng):
+    operator = matrixOperator(rng.standard_normal((3, 3)), backendName='scipy')
+
+    scaled = scaledOperator(scaledOperator(operator, 2.0), -3.0)
+
+    assert scaled.operator is operator
+    assert scaled.scalar == -6.0
+    np.testing.assert_allclose(scaled.toBackendData(), -6.0 * operator.toBackendData())

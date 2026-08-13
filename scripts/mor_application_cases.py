@@ -11,6 +11,8 @@ from scipy import linalg
 from scipy.io import loadmat
 from scipy.sparse import diags, eye, issparse, kron
 
+from mor.models.frequency import transferResponse as evaluateTransferResponse
+
 
 SLICOT_REPOSITORY = "https://github.com/SLICOT/Benchmark-ModelReduction"
 SLICOT_RAW_BASE = "https://raw.githubusercontent.com/SLICOT/Benchmark-ModelReduction/main"
@@ -215,21 +217,25 @@ def caseArrays(data: dict[str, Any], denseOperators: bool = False) -> dict[str, 
     return arrays
 
 
-def transferResponse(A: Any, B: Any, C: Any, frequencies: np.ndarray, E: Any | None = None, D: Any | None = None) -> np.ndarray:
-    aData, bData, cData = denseData(A), denseData(B), denseData(C)
-    eData = np.eye(aData.shape[0], dtype=aData.dtype) if E is None else denseData(E)
-    dData = np.zeros((cData.shape[0], bData.shape[1]), dtype=aData.dtype) if D is None else denseData(D)
-    responses = []
-    for frequency in np.asarray(frequencies).reshape(-1):
-        responses.append(cData @ np.linalg.solve(1j * frequency * eData - aData, bData) + dData)
-    return np.asarray(responses)
+def transferResponse(
+    A: Any,
+    B: Any,
+    C: Any,
+    frequencies: np.ndarray,
+    E: Any | None = None,
+    D: Any | None = None,
+    isContinuous: bool = True,
+) -> np.ndarray:
+    return evaluateTransferResponse(
+        A, B, C, frequencies, E, D, isContinuous=isContinuous
+    )
 
 
 def referenceMagnitudeRelativeError(case: applicationCase, data: dict[str, Any]) -> float | None:
     if case.referenceMagnitudeTolerance is None or "mag" not in data or "w" not in data:
         return None
     arrays = caseArrays(data)
-    response = transferResponse(**arrays, frequencies=np.ravel(data["w"]))
+    response = transferResponse(**arrays, frequencies=np.ravel(data["w"]), isContinuous=case.isContinuous)
     calculated = np.abs(response).reshape(response.shape[0], -1, order="F")
     reference = np.asarray(data["mag"])
     return float(linalg.norm(calculated - reference) / max(linalg.norm(reference), np.finfo(float).tiny))
@@ -275,16 +281,8 @@ def buildCaseModel(case: applicationCase, data: dict[str, Any], denseOperators: 
 def sampledReductionError(model, reducedModel, frequencies: np.ndarray, sampleCount: int = 24) -> float:
     indices = np.unique(np.linspace(0, len(frequencies) - 1, min(sampleCount, len(frequencies)), dtype=int))
     selected = np.asarray(frequencies).reshape(-1)[indices]
-    full = transferResponse(
-        model.A.toBackendData(), model.B.toBackendData(), model.C.toBackendData(), selected,
-        model.E.toBackendData() if model.E is not None else None,
-        model.D.toBackendData() if model.D is not None else None,
-    )
-    reduced = transferResponse(
-        reducedModel.A.toBackendData(), reducedModel.B.toBackendData(), reducedModel.C.toBackendData(), selected,
-        reducedModel.E.toBackendData() if reducedModel.E is not None else None,
-        reducedModel.D.toBackendData() if reducedModel.D is not None else None,
-    )
+    full = model.frequencyResponse(selected)
+    reduced = reducedModel.frequencyResponse(selected)
     return float(max(linalg.norm(full[index] - reduced[index], 2) for index in range(len(selected))))
 
 
@@ -378,10 +376,12 @@ def runReductionCase(case: applicationCase, dataDirectory: Path | None = None, p
                     model.A.toBackendData(), model.B.toBackendData(), model.C.toBackendData(), frequencies,
                     model.E.toBackendData() if model.E is not None else None,
                     model.D.toBackendData() if model.D is not None else None,
+                    isContinuous=case.isContinuous,
                 )
                 reducedResponse = transferResponse(
                     reduced.Ar.toBackendData(), reduced.Br.toBackendData(), reduced.Cr.toBackendData(), frequencies,
                     reduced.Er.toBackendData(), reduced.Dr.toBackendData(),
+                    isContinuous=case.isContinuous,
                 )
                 result["frequency_relative_error"] = float(
                     linalg.norm(reducedResponse - fullResponse)
@@ -464,8 +464,8 @@ def runGeneratedHeatCase(gridSize: int = 10, reducedOrder: int = 6) -> dict[str,
         "algorithm": reduced.solverInfo.get("lyapunov"),
         "hankel_error_bound": float(reduced.solverInfo["hankelErrorBound"]),
         "sampled_max_frequency_error": sampledReductionError(model, reduced.model, frequencies),
-        "fom_stability_metric": stabilityMetric(model.A.toBackendData(), None, True),
-        "rom_stability_metric": stabilityMetric(reduced.Ar.toBackendData(), reduced.Er.toBackendData(), True),
+        "fom_stability_metric": model.stabilityMetric(),
+        "rom_stability_metric": reduced.model.stabilityMetric(),
     }
     result["quality_pass"] = bool(
         result["sampled_max_frequency_error"] <= result["hankel_error_bound"] * (1.0 + 1e-6) + 1e-10
