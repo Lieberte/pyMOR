@@ -72,6 +72,13 @@ from .thermalDimensionless import (
     steadyThermalDimensionlessScales,
     steadyThermalDimensionlessV2GlobalFeatureNames,
 )
+from .geometryRecognition import (
+    geometryRecognitionCase,
+    geometryRecognitionRecord,
+    iterGeometryRecognitionCases,
+    loadGeometryRecognitionCase,
+    loadGeometryRecognitionDatasetRecords,
+)
 from . import geometry
 
 __all__ = [
@@ -136,5 +143,10 @@ __all__ = [
     'steadyThermalDimensionlessV2GlobalFeatureNames',
     'similarityAugmentedThermalComponentCase',
     'randomSimilarityAugmentations',
+    'geometryRecognitionCase',
+    'geometryRecognitionRecord',
+    'iterGeometryRecognitionCases',
+    'loadGeometryRecognitionCase',
+    'loadGeometryRecognitionDatasetRecords',
     'geometry',
 ]
