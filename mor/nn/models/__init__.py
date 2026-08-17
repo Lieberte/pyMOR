@@ -11,6 +11,8 @@ from .ssmDynamicsTorch import ssmDynamicsTorch
 from .heatSteadyStateTorch import heatSteadyStateTorch
 from . import pinn
 from . import operator
+from . import geometry
+from .geometry import geometryDgcnnClassifierTorch, geometryDgcnnEncoderTorch
 from .operator import (
     thermalMeshGnnTorch,
     thermalQuerySetOperatorTorch,
@@ -32,6 +34,9 @@ __all__ = [
     'heatSteadyStateTorch',
     'pinn',
     'operator',
+    'geometry',
+    'geometryDgcnnEncoderTorch',
+    'geometryDgcnnClassifierTorch',
     'thermalMeshGnnTorch',
     'thermalSetDeepONetTorch',
     'thermalSetAttentionOperatorTorch',

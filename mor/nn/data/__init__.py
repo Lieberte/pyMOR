@@ -79,6 +79,14 @@ from .geometryRecognition import (
     loadGeometryRecognitionCase,
     loadGeometryRecognitionDatasetRecords,
 )
+from .geometryPointCloudDataset import (
+    buildGeometryPointCloudSamples,
+    geometryPointCloudDataset,
+    geometryPointCloudSample,
+    randomRotationMatrix,
+    sampleGeometryPointCloud,
+    stratifiedGeometryPointCloudSplit,
+)
 from . import geometry
 
 __all__ = [
@@ -148,5 +156,11 @@ __all__ = [
     'iterGeometryRecognitionCases',
     'loadGeometryRecognitionCase',
     'loadGeometryRecognitionDatasetRecords',
+    'geometryPointCloudSample',
+    'sampleGeometryPointCloud',
+    'buildGeometryPointCloudSamples',
+    'stratifiedGeometryPointCloudSplit',
+    'randomRotationMatrix',
+    'geometryPointCloudDataset',
     'geometry',
 ]
