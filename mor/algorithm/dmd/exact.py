@@ -23,6 +23,7 @@ class exactDMD(dmd):
         amplitudeMethod: str = 'first',
         **kwargs,
     ) -> dmdResult:
+        self._rejectTrainingTimes(kwargs)
         backend = self.localBackend
         xData, yData, trainingSteps, inputWasReal = self._pairedData(snapshots, shiftedSnapshots, dt)
         U, singularValues, Vh = backend.decomposition.svdDense(xData, fullMatrices=False)

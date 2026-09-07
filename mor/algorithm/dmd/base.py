@@ -168,3 +168,8 @@ class dmd(ABC):
             raise ValueError("Snapshots must contain only finite values.")
         inputWasReal = not self.localBackend.array.iscomplexobj(data)
         return xData, yData, trainingSteps, inputWasReal
+
+    @staticmethod
+    def _rejectTrainingTimes(kwargs: dict[str, Any]) -> None:
+        if kwargs.get('times') is not None:
+            raise ValueError("Training times are not supported; provide a uniform positive dt instead.")

@@ -143,6 +143,11 @@ def test_exact_dmd_rejects_nonfinite_snapshots():
         exactDMD('scipy').fit(matrixOperator(np.array([[1.0, np.nan]]), 'scipy'))
 
 
+def test_exact_dmd_rejects_explicit_training_times():
+    with pytest.raises(ValueError, match='uniform positive dt'):
+        exactDMD('scipy').fit(matrixOperator(np.eye(3), 'scipy'), times=[0.0, 0.5, 1.1])
+
+
 def test_exact_dmd_rejects_zero_rank_and_zero_snapshots():
     snapshots = matrixOperator(np.zeros((3, 4)), 'scipy')
     with pytest.raises(ValueError, match='positive numerical snapshot rank'):
