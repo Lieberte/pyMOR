@@ -68,6 +68,70 @@ def test_exact_dmd_rank_truncation():
     assert result.reconstruct().shape == snapshots.shape
 
 
+def test_exact_dmd_filters_numerically_zero_singular_values():
+    snapshots = np.array([
+        [1.0, 0.9, 0.81, 0.729],
+        [2.0, 1.8, 1.62, 1.458],
+        [0.0, 0.0, 0.0, 0.0],
+    ])
+
+    result = exactDMD('scipy').fit(matrixOperator(snapshots, 'scipy'), rank=3)
+
+    assert result.rank == 1
+    assert result.diagnostics['requestedRank'] == 3
+    assert result.diagnostics['numericalRank'] == 1
+    assert np.isfinite(result.diagnostics['conditionNumber'])
+
+
+def test_projected_and_exact_modes_share_reduced_spectrum():
+    dynamics = np.array([[0.85, 0.1], [0.0, 0.95]])
+    snapshots = trajectory(dynamics, np.array([1.0, 0.4]), 8)
+    operator = matrixOperator(snapshots, 'scipy')
+
+    exact = exactDMD('scipy').fit(operator, mode='exact')
+    projected = exactDMD('scipy').fit(operator, mode='projected')
+
+    np.testing.assert_allclose(
+        np.sort_complex(exact.eigenvalues), np.sort_complex(projected.eigenvalues), atol=1e-12
+    )
+    assert projected.diagnostics['mode'] == 'projected'
+
+
+def test_global_amplitude_fit_does_not_increase_training_error():
+    rng = np.random.default_rng(4)
+    dynamics = np.array([[0.9, -0.2], [0.2, 0.9]])
+    snapshots = trajectory(dynamics, np.array([1.0, 0.2]), 20)
+    snapshots += 2e-3 * rng.standard_normal(snapshots.shape)
+    operator = matrixOperator(snapshots, 'scipy')
+
+    first = exactDMD('scipy').fit(operator, amplitudeMethod='first')
+    globalFit = exactDMD('scipy').fit(operator, amplitudeMethod='global')
+
+    assert globalFit.diagnostics['reconstructionError'] <= first.diagnostics['reconstructionError']
+    assert globalFit.diagnostics['amplitudeMethod'] == 'global'
+
+
+def test_exact_dmd_reports_numerical_diagnostics():
+    dynamics = np.diag([0.8, 0.95])
+    snapshots = trajectory(dynamics, np.array([1.0, 2.0]), 8)
+
+    result = exactDMD('scipy').fit(matrixOperator(snapshots, 'scipy'))
+
+    assert result.diagnostics['snapshotResidual'] < 1e-12
+    assert result.diagnostics['oneStepResidual'] < 1e-12
+    assert result.diagnostics['reconstructionError'] < 1e-12
+
+
+@pytest.mark.parametrize(('option', 'value', 'message'), [
+    ('mode', 'unknown', 'mode'),
+    ('amplitudeMethod', 'unknown', 'amplitudeMethod'),
+])
+def test_exact_dmd_rejects_unknown_options(option, value, message):
+    kwargs = {option: value}
+    with pytest.raises(ValueError, match=message):
+        exactDMD('scipy').fit(matrixOperator(np.eye(2), 'scipy'), **kwargs)
+
+
 @pytest.mark.parametrize('dt', [0, -1, np.inf, np.nan, True])
 def test_exact_dmd_rejects_invalid_dt(dt):
     with pytest.raises(ValueError, match='dt'):
@@ -83,7 +147,7 @@ def test_exact_dmd_rejects_zero_rank_and_zero_snapshots():
     snapshots = matrixOperator(np.zeros((3, 4)), 'scipy')
     with pytest.raises(ValueError, match='positive numerical snapshot rank'):
         exactDMD('scipy').fit(snapshots, rank=0)
-    with pytest.raises(ValueError, match='zero singular values'):
+    with pytest.raises(ValueError, match='positive numerical snapshot rank'):
         exactDMD('scipy').fit(snapshots)
 
 
