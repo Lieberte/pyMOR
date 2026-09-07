@@ -14,6 +14,9 @@ FORMAT_VERSION = 'thermal-component-case-v3'
 SUPPORTED_FORMAT_VERSIONS = frozenset(
     ('thermal-component-case-v1', 'thermal-component-case-v2', 'thermal-component-case-v3')
 )
+FULL_RESOLUTION_FORMAT_VERSIONS = frozenset(
+    ('motor-full-point-dataset-v1', 'motor-full-graph-dataset-v1')
+)
 
 
 def _finiteMatrix(value: Any, columns: int, name: str) -> np.ndarray:
@@ -533,8 +536,64 @@ def saveThermalComponentCase(
 def loadThermalComponentCase(directory: str | Path) -> thermalComponentCase:
     root = Path(directory)
     manifest = json.loads((root / 'manifest.json').read_text(encoding='utf-8'))
-    if manifest.get('formatVersion') not in SUPPORTED_FORMAT_VERSIONS:
+    formatVersion = manifest.get('formatVersion')
+    if formatVersion not in SUPPORTED_FORMAT_VERSIONS | FULL_RESOLUTION_FORMAT_VERSIONS:
         raise ValueError(f"unsupported thermal component format: {manifest.get('formatVersion')!r}")
+    if formatVersion in FULL_RESOLUTION_FORMAT_VERSIONS:
+        with np.load(root / manifest['dataFile'], allow_pickle=False) as arrays:
+            volumeCount = len(arrays['volumeCoordinatesMeters'])
+
+            def volumeField(name: str) -> np.ndarray:
+                values = np.asarray(arrays[name])
+                if values.size == 1:
+                    return np.full(volumeCount, float(values.reshape(-1)[0]))
+                return values
+
+            hierarchy = {
+                field: manifest[field]
+                for field in (
+                    'motorId',
+                    'parentCaseId',
+                    'componentInstance',
+                    'analysisType',
+                    'temporalSampleType',
+                    'snapshotTimeS',
+                    'systemType',
+                    'assemblyType',
+                    'assemblyId',
+                )
+                if manifest.get(field) is not None
+            }
+            return thermalComponentCase(
+                caseId=manifest['caseId'],
+                geometryId=manifest['geometryId'],
+                componentType=manifest['componentType'],
+                volume=thermalVolumeSamples(
+                    coordinatesMeters=arrays['volumeCoordinatesMeters'],
+                    conductivityWPerMK=arrays['conductivityTensorWPerMK'],
+                    densityKgPerM3=volumeField('densityKgPerM3'),
+                    specificHeatJPerKgK=volumeField('specificHeatJPerKgK'),
+                    heatSourceWPerM3=arrays['elementHeatSourceWPerM3'],
+                    weightsM3=arrays['volumeWeightsM3'],
+                ),
+                boundary=thermalBoundarySamples(
+                    coordinatesMeters=arrays['boundaryCoordinatesMeters'],
+                    normals=arrays['boundaryNormals'],
+                    htcWPerM2K=arrays['boundaryHtcWPerM2K'],
+                    ambientTemperatureK=arrays['boundaryReferenceTemperatureK'],
+                    weightsM2=arrays['boundaryWeightsM2'],
+                    boundaryTypeIds=arrays['boundaryTypeIds'],
+                    heatFluxWPerM2=arrays['boundaryHeatFluxWPerM2'],
+                    patchIds=arrays['boundaryPatchIds'],
+                ),
+                temperature=thermalTemperatureSamples(
+                    coordinatesMeters=arrays['queryCoordinatesMeters'],
+                    temperatureK=arrays['nodeTemperatureK'],
+                    weightsM3=arrays['queryWeightsM3'],
+                ),
+                operatingFeatures=manifest.get('operatingFeatures', {}),
+                metadata={**manifest.get('metadata', {}), **hierarchy},
+            )
     with np.load(root / manifest['arrayFile'], allow_pickle=False) as arrays:
         return thermalComponentCase(
             caseId=manifest['caseId'],

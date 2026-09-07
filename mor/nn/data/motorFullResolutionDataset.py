@@ -19,6 +19,7 @@ from .motorFemComponentCase import (
     _normalizedComponentName,
     _regionName,
     _reshapeConnectivity,
+    _resolveFemSystem,
     _surfacePatchSamples,
     _tetrahedronGeometry,
 )
@@ -28,6 +29,41 @@ from .motorWholeDataset import saveWholeMotorDataset
 POINT_FORMAT_VERSION = 'motor-full-point-dataset-v1'
 GRAPH_FORMAT_VERSION = 'motor-full-graph-dataset-v1'
 FULL_DATASET_FORMAT_VERSION = 'motor-full-dual-dataset-v1'
+
+
+def _geometryClassificationTask(entries: Sequence[dict[str, Any]]) -> dict[str, Any]:
+    componentTypes = sorted(
+        {
+            str(entry['componentType']).strip()
+            for entry in entries
+            if str(entry.get('componentType', '')).strip()
+        }
+    )
+    return {
+        'taskType': 'multiclassClassification',
+        'targetField': 'componentType',
+        'classes': componentTypes,
+    }
+
+
+def _temporalIndexFields(componentCase) -> dict[str, Any]:
+    metadata = componentCase.metadata
+    fields = {
+        'analysisType': metadata.get('analysisType', 'unknown'),
+        'temporalSampleType': metadata.get('temporalSampleType', 'unknownSnapshot'),
+    }
+    if metadata.get('snapshotTimeS') is not None:
+        fields['snapshotTimeS'] = float(metadata['snapshotTimeS'])
+    return fields
+
+
+def _assemblyIndexFields(componentCase) -> dict[str, str]:
+    metadata = componentCase.metadata
+    return {
+        'systemType': str(metadata.get('systemType', 'electric_machine')),
+        'assemblyType': str(metadata.get('assemblyType', 'motor')),
+        'assemblyId': str(metadata.get('assemblyId') or metadata['motorId']),
+    }
 
 
 def _identifier(value: str, name: str) -> str:
@@ -72,10 +108,7 @@ def _writeJson(path: Path, value: Any) -> None:
 def _meshData(caseDirectory: Path, component: str):
     h5py = _h5py()
     control = json.loads((caseDirectory / 'controlData.json').read_text(encoding='utf-8'))
-    femSystems = control['rootSystem']['thermalComponents']['fem3DThermals']
-    if len(femSystems) != 1:
-        raise ValueError(f'expected exactly one 3D FEM system, found {len(femSystems)}')
-    femSystemUuid, femSystem = next(iter(femSystems.items()))
+    femSystemUuid, femSystem, femSchema = _resolveFemSystem(control)
     regionUuid, region = _findRegion(femSystem, component)
     meshUuid = str(region['meshUuid'])
     with h5py.File(caseDirectory / 'mesh' / f'{meshUuid}.samesh', 'r') as meshFile:
@@ -108,6 +141,7 @@ def _meshData(caseDirectory: Path, component: str):
     nodeWeights = _lumpedNodeVolumes(nodes.shape[0], tetrahedra, elementVolumes)
     return {
         'femSystemUuid': str(femSystemUuid),
+        'femSchema': femSchema,
         'regionUuid': str(regionUuid),
         'regionName': _regionName(region),
         'componentInstance': _normalizedComponentName(_regionName(region)),
@@ -244,6 +278,8 @@ def _saveSelfContainedCase(
         'caseId': componentCase.caseId,
         'motorId': componentCase.metadata['motorId'],
         'parentCaseId': componentCase.metadata['parentCaseId'],
+        **_assemblyIndexFields(componentCase),
+        **_temporalIndexFields(componentCase),
         'componentType': componentCase.componentType,
         'componentInstance': componentCase.metadata['componentInstance'],
         'geometryId': componentCase.geometryId,
@@ -258,7 +294,10 @@ def _saveSelfContainedCase(
     _writeJson(caseRoot / 'manifest.json', manifest)
     return {
         'caseId': componentCase.caseId,
+        'motorId': componentCase.metadata['motorId'],
         'parentCaseId': componentCase.metadata['parentCaseId'],
+        **_assemblyIndexFields(componentCase),
+        **_temporalIndexFields(componentCase),
         'componentType': componentCase.componentType,
         'componentInstance': componentCase.metadata['componentInstance'],
         'geometryId': componentCase.geometryId,
@@ -340,12 +379,25 @@ def buildFullResolutionMotorDatasetFromDirectories(
 
     sharedMetadata = {
         'motorId': resolvedMotorId,
+        'systemType': 'electric_machine',
+        'systemTypes': ['electric_machine'],
+        'assemblyType': 'motor',
+        'assemblyTypes': ['motor'],
+        'assemblyId': resolvedMotorId,
+        'assemblyIds': [resolvedMotorId],
         'sourceDirectory': str(sourceRoot.resolve()),
         'parentCaseIds': selectedNames,
         'fullResolution': True,
         'randomSubsampling': False,
         'selfContainedCases': True,
         'geometryAssetsSharedByMeshUuid': False,
+        'analysisTypes': sorted(
+            {
+                case.metadata.get('analysisType', 'unknown')
+                for _, cases in groupedCases
+                for case in cases
+            }
+        ),
     }
     _writeJson(
         pointRoot / 'dataset.json',
@@ -355,6 +407,11 @@ def buildFullResolutionMotorDatasetFromDirectories(
             'connectivityStored': False,
             'selfContainedCases': True,
             'metadata': sharedMetadata,
+            'tasks': {
+                'geometryComponentClassification': _geometryClassificationTask(
+                    pointEntries
+                ),
+            },
             'cases': pointEntries,
         },
     )
@@ -366,6 +423,11 @@ def buildFullResolutionMotorDatasetFromDirectories(
             'connectivityStored': True,
             'selfContainedCases': True,
             'metadata': sharedMetadata,
+            'tasks': {
+                'geometryComponentClassification': _geometryClassificationTask(
+                    graphEntries
+                ),
+            },
             'cases': graphEntries,
         },
     )
@@ -391,6 +453,7 @@ def buildFullResolutionMotorDatasetFromDirectories(
             'motorId': resolvedMotorId,
             'parentCaseIds': selectedNames,
             'fullResolution': True,
+            'analysisTypes': sharedMetadata['analysisTypes'],
             'views': {
                 'point': 'point/dataset.json',
                 'pointWholeMotor': 'point/whole_motor/dataset.json',
@@ -399,4 +462,7 @@ def buildFullResolutionMotorDatasetFromDirectories(
             },
         },
     )
+    from .motorTransientDataset import writeMotorThermalAnalysisIndexes
+
+    writeMotorThermalAnalysisIndexes(outputRoot)
     return viewsPath

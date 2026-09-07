@@ -12,8 +12,12 @@ from zipfile import ZipFile, ZipInfo
 from .motorFemComponentCase import (
     CONVECTION_BOUNDARY_TYPE,
     FIXED_TEMPERATURE_BOUNDARY_TYPE,
+    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
     buildMotorFemComponentCase,
+    _normalizedComponentName,
+    _resolveFemSystem,
+    _thermalAnalysisMetadata,
 )
 from .thermalComponentCase import saveThermalComponentDataset
 from .motorWholeDataset import saveWholeMotorDataset
@@ -24,6 +28,12 @@ class motorStaArchiveInfo:
     sourcePath: Path
     resultMember: str
     resultTime: float | None
+    analysisType: str
+    isTransient: bool | None
+    sourceTimeStepS: float | None
+    sourceEndTimeS: float | None
+    availableResultCoordinates: tuple[float, ...]
+    availableResultMembers: tuple[str, ...]
     componentNames: tuple[str, ...]
     meshMembers: tuple[str, ...]
 
@@ -44,16 +54,6 @@ def _identifier(value: str, name: str) -> str:
     normalized = re.sub(r'[^A-Za-z0-9_-]+', '-', str(value).strip()).strip('-_')
     if not normalized:
         raise ValueError(f'{name} cannot be normalized to an empty identifier')
-    return normalized
-
-
-def _normalizedComponentName(value: str) -> str:
-    normalized = str(value).strip()
-    if normalized.lower().endswith('_mm'):
-        normalized = normalized[:-3]
-    normalized = re.sub(r'[^A-Za-z0-9_-]+', '_', normalized).strip('_').lower()
-    if not normalized:
-        raise ValueError('FEM component name cannot be normalized to an empty identifier')
     return normalized
 
 
@@ -78,7 +78,8 @@ def _selectedResultMember(
     *,
     resultTime: float | None,
     resultMember: str | None,
-) -> tuple[str, float | None]:
+    systemUuid: str | None = None,
+) -> tuple[str, float | None, tuple[float, ...], tuple[str, ...]]:
     if resultTime is not None and resultMember is not None:
         raise ValueError('resultTime and resultMember cannot both be provided')
     names = {
@@ -90,21 +91,59 @@ def _selectedResultMember(
         name
         for name in names
         if PurePosixPath(name).parts[0] == 'results'
+        and (
+            len(PurePosixPath(name).parts) < 2
+            or PurePosixPath(name).parts[1].lower() != 'iterationinfo'
+        )
         and PurePosixPath(name).suffix.lower() == '.h5'
     )
+    if systemUuid is not None:
+        matchingSystem = tuple(
+            name
+            for name in resultNames
+            if len(PurePosixPath(name).parts) >= 3
+            and PurePosixPath(name).parts[1].lower() == str(systemUuid).lower()
+        )
+        if matchingSystem:
+            resultNames = matchingSystem
+    if not resultNames:
+        raise ValueError(
+            'STA archive does not contain solved HDF5 result files; '
+            'results/iterationInfo contains iteration metadata only'
+        )
+    numericResults = []
+    iterationResults: dict[float, list[tuple[float, str]]] = {}
+    for name in resultNames:
+        path = PurePosixPath(name)
+        try:
+            numericResults.append((float(path.stem), name))
+        except ValueError:
+            continue
+        if len(path.parts) >= 4 and path.parts[1].lower() == 'iterationinfo':
+            try:
+                physicalTime = float(path.parts[-2])
+                iteration = float(path.stem)
+            except ValueError:
+                continue
+            iterationResults.setdefault(physicalTime, []).append((iteration, name))
+
+    if iterationResults:
+        selectedPhysicalResults = tuple(
+            (time, max(candidates, key=lambda item: item[0])[1])
+            for time, candidates in sorted(iterationResults.items())
+        )
+    else:
+        selectedPhysicalResults = tuple(sorted(numericResults))
+
     if resultMember is not None:
         selected = _safeMemberName(resultMember)
         if selected not in resultNames:
             raise FileNotFoundError(f'result member is not present in STA archive: {selected}')
     else:
-        numericResults = []
-        for name in resultNames:
-            try:
-                numericResults.append((float(PurePosixPath(name).stem), name))
-            except ValueError:
-                continue
         if resultTime is not None:
-            matches = [name for time, name in numericResults if time == float(resultTime)]
+            matches = [
+                name for time, name in selectedPhysicalResults if time == float(resultTime)
+            ]
             if len(matches) != 1:
                 raise ValueError(
                     f'expected one result at time {float(resultTime):g}, found {len(matches)}'
@@ -112,17 +151,26 @@ def _selectedResultMember(
             selected = matches[0]
         elif len(resultNames) == 1:
             selected = resultNames[0]
-        elif numericResults:
-            selected = max(numericResults, key=lambda item: item[0])[1]
+        elif selectedPhysicalResults:
+            selected = selectedPhysicalResults[-1][1]
         else:
             raise ValueError(
                 'STA archive contains multiple non-numeric result files; provide resultMember'
             )
-    try:
-        selectedTime = float(PurePosixPath(selected).stem)
-    except ValueError:
-        selectedTime = None
-    return selected, selectedTime
+    selectedTimes = [time for time, name in selectedPhysicalResults if name == selected]
+    if selectedTimes:
+        selectedTime = selectedTimes[0]
+    else:
+        try:
+            selectedTime = float(PurePosixPath(selected).stem)
+        except ValueError:
+            selectedTime = None
+    return (
+        selected,
+        selectedTime,
+        tuple(time for time, _ in selectedPhysicalResults),
+        tuple(name for _, name in selectedPhysicalResults),
+    )
 
 
 def inspectMotorStaArchive(
@@ -136,10 +184,7 @@ def inspectMotorStaArchive(
         raise FileNotFoundError(f'STA archive does not exist: {sourcePath}')
     with ZipFile(sourcePath) as archive:
         control = _controlFromArchive(archive)
-        femSystems = control['rootSystem']['thermalComponents']['fem3DThermals']
-        if len(femSystems) != 1:
-            raise ValueError(f'expected exactly one 3D FEM system, found {len(femSystems)}')
-        femSystem = next(iter(femSystems.values()))
+        femSystemUuid, femSystem, _ = _resolveFemSystem(control)
         regions = tuple(femSystem.get('femRegions', {}).values())
         if not regions:
             raise ValueError('3D FEM system does not contain any regions')
@@ -155,18 +200,59 @@ def inspectMotorStaArchive(
         missingMeshes = tuple(name for name in meshMembers if name not in archiveNames)
         if missingMeshes:
             raise FileNotFoundError(f'STA archive is missing referenced FEM meshes: {missingMeshes}')
-        selectedResult, selectedTime = _selectedResultMember(
+        selectedResult, selectedTime, resultCoordinates, resultMembers = _selectedResultMember(
             archive,
             resultTime=resultTime,
             resultMember=resultMember,
+            systemUuid=femSystemUuid,
+        )
+        analysis = _thermalAnalysisMetadata(
+            control,
+            snapshotTimeS=(
+                selectedTime
+                if control.get('solverSetting', {}).get('timeDomain', {}).get('isTransient')
+                is True
+                else None
+            ),
         )
     return motorStaArchiveInfo(
         sourcePath=sourcePath,
         resultMember=selectedResult,
         resultTime=selectedTime,
+        analysisType=analysis['analysisType'],
+        isTransient=analysis['isTransient'],
+        sourceTimeStepS=analysis.get('sourceTimeStepS'),
+        sourceEndTimeS=analysis.get('sourceEndTimeS'),
+        availableResultCoordinates=resultCoordinates,
+        availableResultMembers=resultMembers,
         componentNames=componentNames,
         meshMembers=meshMembers,
     )
+
+
+def _staTemporalMetadata(info: motorStaArchiveInfo) -> dict:
+    metadata = {
+        'analysisType': info.analysisType,
+        'isTransient': info.isTransient,
+        'temporalSampleType': (
+            'transientSnapshot'
+            if info.isTransient is True
+            else 'steadySolution'
+            if info.isTransient is False
+            else 'unknownSnapshot'
+        ),
+        'timeSeriesStored': False,
+    }
+    if info.isTransient is True:
+        metadata.update(
+            {
+                'sourceTimeStepS': info.sourceTimeStepS,
+                'sourceEndTimeS': info.sourceEndTimeS,
+                'snapshotTimeS': info.resultTime,
+                'sourceSnapshotCount': len(info.availableResultCoordinates),
+            }
+        )
+    return metadata
 
 
 def _requiredMembers(info: motorStaArchiveInfo) -> tuple[str, ...]:
@@ -271,6 +357,7 @@ def buildMotorDatasetFromSta(
     )
     resolvedMotorId = _identifier(motorId or info.sourcePath.stem, 'motorId')
     resolvedParentCaseId = _identifier(parentCaseId or resolvedMotorId, 'parentCaseId')
+    temporalMetadata = _staTemporalMetadata(info)
     selectedComponents = tuple(components) if components is not None else info.componentNames
     if not selectedComponents:
         raise ValueError('at least one FEM component must be selected')
@@ -301,8 +388,17 @@ def buildMotorDatasetFromSta(
                 cases.append(
                     replace(
                         case,
+                        operatingFeatures={
+                            **case.operatingFeatures,
+                            **(
+                                {'snapshotTimeS': temporalMetadata['snapshotTimeS']}
+                                if temporalMetadata.get('snapshotTimeS') is not None
+                                else {}
+                            ),
+                        },
                         metadata={
                             **case.metadata,
+                            **temporalMetadata,
                             'motorId': resolvedMotorId,
                             'parentCaseId': resolvedParentCaseId,
                             'sourceCase': info.sourcePath.name,
@@ -319,6 +415,7 @@ def buildMotorDatasetFromSta(
                     RESULT_HEAT_FLUX_BOUNDARY_TYPE: 'resultHeatFlux',
                     CONVECTION_BOUNDARY_TYPE: 'convection',
                     FIXED_TEMPERATURE_BOUNDARY_TYPE: 'fixedTemperature',
+                    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE: 'prescribedHeatFlux',
                 },
                 datasetMetadata={
                     'datasetType': 'singleMotorFemComponents',
@@ -327,6 +424,7 @@ def buildMotorDatasetFromSta(
                     'sourceSta': str(info.sourcePath.resolve()),
                     'selectedResultMember': info.resultMember,
                     'selectedResultTime': info.resultTime,
+                    **temporalMetadata,
                     'availableComponents': info.componentNames,
                     'selectedComponents': tuple(
                         case.metadata.get('componentInstance', case.componentType)
@@ -339,6 +437,7 @@ def buildMotorDatasetFromSta(
                 'sourceSta': str(info.sourcePath.resolve()),
                 'selectedResultMember': info.resultMember,
                 'selectedResultTime': info.resultTime,
+                **temporalMetadata,
                 'availableComponents': info.componentNames,
                 'selectedComponents': tuple(
                     case.metadata.get('componentInstance', case.componentType)

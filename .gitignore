@@ -17,3 +17,5 @@
 /doc
 /reports
 /tests/data/slicot/*.mat
+/_tmp_*
+/feishu_doc_read_auth.png

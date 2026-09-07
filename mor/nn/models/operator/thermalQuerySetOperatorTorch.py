@@ -10,6 +10,79 @@ from mor.nn.models.torchModelBase import torchModelBase
 from mor.nn.registry import nnRegistry
 
 
+class _SmoothResidualBlock(nn.Module):
+    """A twice-differentiable residual block for strong-form PINN training."""
+
+    def __init__(self, width: int, residualScale: float):
+        super().__init__()
+        self.residualScale = float(residualScale)
+        self.residual = nn.Sequential(
+            nn.Linear(width, width),
+            nn.SiLU(),
+            nn.Linear(width, width),
+        )
+        # Start from the exact shallow-network function. The residual branch
+        # then grows only when it is useful to the optimization.
+        nn.init.zeros_(self.residual[-1].weight)
+        nn.init.zeros_(self.residual[-1].bias)
+
+    def forward(self, values: torch.Tensor) -> torch.Tensor:
+        return values + self.residualScale * self.residual(values)
+
+
+class _SmoothUNetDecoder(nn.Module):
+    """U-shaped MLP decoder for unstructured query features."""
+
+    def __init__(self, inputDim: int, hiddenDim: int):
+        super().__init__()
+        width0 = 4 * hiddenDim
+        width1 = 2 * hiddenDim
+        width2 = hiddenDim
+        self.inputProjection = nn.Linear(inputDim, width0)
+        self.down1 = nn.Linear(width0, width1)
+        self.bottleneck = nn.Linear(width1, width2)
+        self.up1 = nn.Linear(width2, width1)
+        self.merge1 = nn.Linear(2 * width1, width1)
+        self.up0 = nn.Linear(width1, width0)
+        self.merge0 = nn.Linear(2 * width0, width0)
+        self.output = nn.Linear(width0, 1)
+        self.activation = nn.SiLU()
+
+    def forward(self, values: torch.Tensor) -> torch.Tensor:
+        skip0 = self.activation(self.inputProjection(values))
+        skip1 = self.activation(self.down1(skip0))
+        hidden = self.activation(self.bottleneck(skip1))
+        hidden = self.activation(self.up1(hidden))
+        hidden = self.activation(self.merge1(torch.cat((hidden, skip1), dim=-1)))
+        hidden = self.activation(self.up0(hidden))
+        hidden = self.activation(self.merge0(torch.cat((hidden, skip0), dim=-1)))
+        return self.output(hidden)
+
+
+class _SmoothDenseDecoder(nn.Module):
+    """Dense skip-connected MLP decoder with smooth PINN derivatives."""
+
+    def __init__(self, inputDim: int, hiddenDim: int):
+        super().__init__()
+        stemWidth = 4 * hiddenDim
+        growthWidth = 2 * hiddenDim
+        self.stem = nn.Linear(inputDim, stemWidth)
+        self.dense1 = nn.Linear(stemWidth, growthWidth)
+        self.dense2 = nn.Linear(stemWidth + growthWidth, growthWidth)
+        self.dense3 = nn.Linear(stemWidth + 2 * growthWidth, growthWidth)
+        self.output = nn.Linear(stemWidth + 3 * growthWidth, 1)
+        self.activation = nn.SiLU()
+
+    def forward(self, values: torch.Tensor) -> torch.Tensor:
+        stem = self.activation(self.stem(values))
+        dense1 = self.activation(self.dense1(stem))
+        dense2 = self.activation(self.dense2(torch.cat((stem, dense1), dim=-1)))
+        dense3 = self.activation(
+            self.dense3(torch.cat((stem, dense1, dense2), dim=-1))
+        )
+        return self.output(torch.cat((stem, dense1, dense2, dense3), dim=-1))
+
+
 class thermalQuerySetOperatorTorch(torchModelBase):
     def __init__(
         self,
@@ -27,6 +100,11 @@ class thermalQuerySetOperatorTorch(torchModelBase):
         boundaryTypeCount: int = 0,
         decomposeMeanAndShape: bool = False,
         anchorFeatureIndex: int = -1,
+        residualBlockCount: int = 0,
+        residualScale: float = 1.0,
+        decoderArchitecture: str | None = None,
+        contextArchitecture: str = 'rbf',
+        attentionHeadCount: int = 4,
         **kwargs,
     ):
         super().__init__(modelName='thermalQuerySetOperatorTorch', **kwargs)
@@ -43,6 +121,42 @@ class thermalQuerySetOperatorTorch(torchModelBase):
             raise ValueError('kernelScales must contain positive finite values')
         if queryFourierFrequencies < 0:
             raise ValueError('queryFourierFrequencies must be non-negative')
+        residualBlockCount = int(residualBlockCount)
+        residualScale = float(residualScale)
+        if residualBlockCount < 0:
+            raise ValueError('residualBlockCount must be non-negative')
+        if not math.isfinite(residualScale) or residualScale <= 0.0:
+            raise ValueError('residualScale must be positive and finite')
+        if decoderArchitecture is None or str(decoderArchitecture).strip() == 'auto':
+            decoderArchitecture = 'resnet' if residualBlockCount else 'mlp'
+        decoderArchitecture = str(decoderArchitecture).strip().lower()
+        if decoderArchitecture not in ('mlp', 'resnet', 'unet', 'dense'):
+            raise ValueError(
+                'decoderArchitecture must be mlp, resnet, unet, or dense'
+            )
+        if decoderArchitecture == 'resnet' and residualBlockCount <= 0:
+            raise ValueError('resnet decoder requires residualBlockCount > 0')
+        if decoderArchitecture != 'resnet' and residualBlockCount != 0:
+            raise ValueError(
+                'residualBlockCount is only supported by the resnet decoder'
+            )
+        contextArchitecture = str(contextArchitecture).strip().lower()
+        if contextArchitecture not in (
+            'rbf',
+            'global',
+            'deeponet',
+            'attention',
+            'hybrid',
+        ):
+            raise ValueError(
+                'contextArchitecture must be rbf, global, deeponet, '
+                'attention, or hybrid'
+            )
+        attentionHeadCount = int(attentionHeadCount)
+        if attentionHeadCount <= 0 or int(hiddenDim) % attentionHeadCount:
+            raise ValueError(
+                'attentionHeadCount must be positive and divide hiddenDim'
+            )
         boundaryTypeFeatureStart = int(boundaryTypeFeatureStart)
         boundaryTypeCount = int(boundaryTypeCount)
         if boundaryTypeFeatureStart < 0 or boundaryTypeCount < 0:
@@ -66,6 +180,11 @@ class thermalQuerySetOperatorTorch(torchModelBase):
         self.boundaryTypeCount = boundaryTypeCount
         self.decomposeMeanAndShape = bool(decomposeMeanAndShape)
         self.anchorFeatureIndex = int(anchorFeatureIndex)
+        self.residualBlockCount = residualBlockCount
+        self.residualScale = residualScale
+        self.decoderArchitecture = decoderArchitecture
+        self.contextArchitecture = contextArchitecture
+        self.attentionHeadCount = attentionHeadCount
         self.volumeEncoder = nn.Sequential(
             nn.Linear(volumeFeatureDim, hiddenDim), nn.SiLU(), nn.Linear(hiddenDim, hiddenDim)
         )
@@ -86,19 +205,62 @@ class thermalQuerySetOperatorTorch(torchModelBase):
             if self.separateBoundaryTypeContexts
             else 1
         )
-        decoderInputDim = (
-            queryFeatureDim
-            + 2 * hiddenDim
-            + len(self.kernelScales) * kernelContextDim
+        rbfContextDim = (
+            len(self.kernelScales) * kernelContextDim
             + boundaryContextGroups * len(self.kernelScales) * kernelContextDim
         )
-        self.decoder = nn.Sequential(
-            nn.Linear(decoderInputDim, 4 * hiddenDim),
-            nn.SiLU(),
-            nn.Linear(4 * hiddenDim, 2 * hiddenDim),
-            nn.SiLU(),
-            nn.Linear(2 * hiddenDim, 1),
-        )
+        attentionContextDim = 2 * hiddenDim
+        decoderInputDim = queryFeatureDim + 2 * hiddenDim
+        if contextArchitecture in ('rbf', 'hybrid'):
+            decoderInputDim += rbfContextDim
+        if contextArchitecture in ('attention', 'hybrid'):
+            decoderInputDim += attentionContextDim
+        self.queryAttentionProjection = None
+        self.volumeAttention = None
+        self.boundaryAttention = None
+        if contextArchitecture in ('attention', 'hybrid'):
+            self.queryAttentionProjection = nn.Sequential(
+                nn.Linear(queryFeatureDim + 2 * hiddenDim, hiddenDim),
+                nn.SiLU(),
+                nn.Linear(hiddenDim, hiddenDim),
+            )
+            self.volumeAttention = nn.MultiheadAttention(
+                hiddenDim,
+                attentionHeadCount,
+                batch_first=True,
+            )
+            self.boundaryAttention = nn.MultiheadAttention(
+                hiddenDim,
+                attentionHeadCount,
+                batch_first=True,
+            )
+        self.deepONetBranch = None
+        self.deepONetTrunk = None
+        self.deepONetBias = None
+        if contextArchitecture == 'deeponet':
+            self.deepONetBranch = nn.Sequential(
+                nn.Linear(2 * hiddenDim, 2 * hiddenDim),
+                nn.SiLU(),
+                nn.Linear(2 * hiddenDim, 2 * hiddenDim),
+            )
+            self.deepONetTrunk = nn.Sequential(
+                nn.Linear(queryFeatureDim, 2 * hiddenDim),
+                nn.SiLU(),
+                nn.Linear(2 * hiddenDim, 2 * hiddenDim),
+            )
+            self.deepONetBias = nn.Parameter(torch.zeros(1))
+        if decoderArchitecture == 'unet':
+            self.decoder = _SmoothUNetDecoder(decoderInputDim, hiddenDim)
+        elif decoderArchitecture == 'dense':
+            self.decoder = _SmoothDenseDecoder(decoderInputDim, hiddenDim)
+        else:
+            self.decoder = nn.Sequential(
+                nn.Linear(decoderInputDim, 4 * hiddenDim),
+                nn.SiLU(),
+                nn.Linear(4 * hiddenDim, 2 * hiddenDim),
+                nn.SiLU(),
+                nn.Linear(2 * hiddenDim, 1),
+            )
         self.meanHead = (
             nn.Sequential(
                 nn.Linear(2 * hiddenDim, hiddenDim),
@@ -108,6 +270,29 @@ class thermalQuerySetOperatorTorch(torchModelBase):
             if self.decomposeMeanAndShape
             else None
         )
+        # Keep the legacy decoder module and all of its state-dict keys
+        # unchanged. An empty block list therefore loads old checkpoints
+        # strictly and produces the original architecture.
+        self.decoderResidualBlocks = nn.Sequential(
+            *(
+                _SmoothResidualBlock(2 * hiddenDim, residualScale)
+                for _ in range(
+                    residualBlockCount if decoderArchitecture == 'resnet' else 0
+                )
+            )
+        )
+
+    def _decode(self, decoderInput: torch.Tensor) -> torch.Tensor:
+        if self.decoderArchitecture in ('unet', 'dense'):
+            return self.decoder(decoderInput)
+        if self.decoderArchitecture == 'mlp':
+            return self.decoder(decoderInput)
+        hidden = self.decoder[0](decoderInput)
+        hidden = self.decoder[1](hidden)
+        hidden = self.decoder[2](hidden)
+        hidden = self.decoder[3](hidden)
+        hidden = self.decoderResidualBlocks(hidden)
+        return self.decoder[4](hidden)
 
     def _queryFeatures(self, coordinates: torch.Tensor) -> torch.Tensor:
         if self.queryFourierFrequencies == 0:
@@ -161,7 +346,7 @@ class thermalQuerySetOperatorTorch(torchModelBase):
                 )
                 contexts.append(
                     (
-                        kernelWeights * torch.sqrt(distanceSquared.clamp_min(0.0))
+                        kernelWeights * torch.sqrt(distanceSquared.clamp_min(epsilon))
                     ).sum(dim=-1, keepdim=True)
                     / denominator
                 )
@@ -201,6 +386,39 @@ class thermalQuerySetOperatorTorch(torchModelBase):
                 )
         return torch.cat(contexts, dim=-1)
 
+    def _attentionContext(
+        self,
+        batch: dict[str, Any],
+        queryFeatures: torch.Tensor,
+        expandedGlobal: torch.Tensor,
+        volumeEncoded: torch.Tensor,
+        boundaryEncoded: torch.Tensor,
+    ) -> torch.Tensor:
+        if (
+            self.queryAttentionProjection is None
+            or self.volumeAttention is None
+            or self.boundaryAttention is None
+        ):
+            raise RuntimeError('attention context modules are not configured')
+        query = self.queryAttentionProjection(
+            torch.cat((queryFeatures, expandedGlobal), dim=-1)
+        )
+        volumeContext = self.volumeAttention(
+            query,
+            volumeEncoded,
+            volumeEncoded,
+            key_padding_mask=~batch['volumeMask'],
+            need_weights=False,
+        )[0]
+        boundaryContext = self.boundaryAttention(
+            query,
+            boundaryEncoded,
+            boundaryEncoded,
+            key_padding_mask=~batch['boundaryMask'],
+            need_weights=False,
+        )[0]
+        return torch.cat((volumeContext, boundaryContext), dim=-1)
+
     def _globalState(self, batch: dict[str, Any]) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         volumeEncoded = self.volumeEncoder(batch['volumeFeatures'])
         boundaryEncoded = self.boundaryEncoder(batch['boundaryFeatures'])
@@ -233,25 +451,48 @@ class thermalQuerySetOperatorTorch(torchModelBase):
     def _forwardParts(self, batch: dict[str, Any]) -> dict[str, torch.Tensor]:
         globalState, volumeEncoded, boundaryEncoded = self._globalState(batch)
         queryCoordinates = batch['queryCoordinates']
-        volumeContext = self._kernelAggregate(
-            queryCoordinates,
-            batch['volumeFeatures'][..., : self.queryDim],
-            volumeEncoded,
-            batch['volumeWeights'],
-            batch['volumeMask'],
-        )
-        boundaryContext = self._boundaryContext(batch, boundaryEncoded)
+        queryFeatures = self._queryFeatures(queryCoordinates)
         expandedGlobal = globalState.unsqueeze(1).expand(-1, queryCoordinates.shape[1], -1)
-        decoderInput = torch.cat(
-            (
-                self._queryFeatures(queryCoordinates),
-                expandedGlobal,
-                volumeContext,
-                boundaryContext,
-            ),
-            dim=-1,
-        )
-        shape = self.decoder(decoderInput)
+        if self.contextArchitecture == 'deeponet':
+            if (
+                self.deepONetBranch is None
+                or self.deepONetTrunk is None
+                or self.deepONetBias is None
+            ):
+                raise RuntimeError('DeepONet modules are not configured')
+            branch = self.deepONetBranch(globalState).unsqueeze(1)
+            trunk = self.deepONetTrunk(queryFeatures)
+            shape = (
+                torch.sum(branch * trunk, dim=-1, keepdim=True)
+                / math.sqrt(float(trunk.shape[-1]))
+                + self.deepONetBias
+            )
+        else:
+            decoderParts = [queryFeatures, expandedGlobal]
+            if self.contextArchitecture in ('rbf', 'hybrid'):
+                decoderParts.extend(
+                    (
+                        self._kernelAggregate(
+                            queryCoordinates,
+                            batch['volumeFeatures'][..., : self.queryDim],
+                            volumeEncoded,
+                            batch['volumeWeights'],
+                            batch['volumeMask'],
+                        ),
+                        self._boundaryContext(batch, boundaryEncoded),
+                    )
+                )
+            if self.contextArchitecture in ('attention', 'hybrid'):
+                decoderParts.append(
+                    self._attentionContext(
+                        batch,
+                        queryFeatures,
+                        expandedGlobal,
+                        volumeEncoded,
+                        boundaryEncoded,
+                    )
+                )
+            shape = self._decode(torch.cat(decoderParts, dim=-1))
         if self.meanHead is None:
             return {
                 'prediction': shape,

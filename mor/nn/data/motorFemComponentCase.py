@@ -18,6 +18,7 @@ from .thermalComponentCase import (
 RESULT_HEAT_FLUX_BOUNDARY_TYPE = 0
 CONVECTION_BOUNDARY_TYPE = 1
 FIXED_TEMPERATURE_BOUNDARY_TYPE = 2
+PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE = 3
 
 
 def _fixedTableValue(table: dict[str, Any], name: str) -> float:
@@ -65,6 +66,25 @@ def _patchBoundaryInput(patch: dict[str, Any]) -> dict[str, Any]:
             'ambientTemperatureK': temperature,
             'absoluteTemperatureAnchor': True,
         }
+    heatFlux = conditions.get('heatFlux')
+    if heatFlux is not None:
+        inputVariable = str(heatFlux.get('inputVariable', 'heatFlux'))
+        if inputVariable not in ('heatFlux', 'power'):
+            raise NotImplementedError(
+                f'unsupported prescribed heat-flux input variable: {inputVariable!r}'
+            )
+        value = _fixedTableValue(
+            heatFlux.get('heatFlux1D', {}), 'prescribed heat flux'
+        )
+        return {
+            'boundaryInputType': 'prescribedHeatFlux',
+            'boundaryTypeId': PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
+            'htcWPerM2K': 0.0,
+            'ambientTemperatureK': 0.0,
+            'absoluteTemperatureAnchor': False,
+            'prescribedHeatFluxInputVariable': inputVariable,
+            'prescribedHeatFluxValue': value,
+        }
     return {
         'boundaryInputType': 'resultHeatFlux',
         'boundaryTypeId': RESULT_HEAT_FLUX_BOUNDARY_TYPE,
@@ -72,6 +92,51 @@ def _patchBoundaryInput(patch: dict[str, Any]) -> dict[str, Any]:
         'ambientTemperatureK': 0.0,
         'absoluteTemperatureAnchor': False,
     }
+
+
+def _networkBoundaryInputs(
+    femSystem: dict[str, Any], regionUuid: str
+) -> dict[str, dict[str, Any]]:
+    """Return explicit heat-flux inputs declared on FEM-network interfaces."""
+    overrides: dict[str, dict[str, Any]] = {}
+    for interfaceUuid, interface in femSystem.get('femNetworkInterfaces', {}).items():
+        if not interface.get('isActive', True):
+            continue
+        fem = interface.get('fem', {})
+        if str(fem.get('femUuid', '')) != str(regionUuid):
+            continue
+        if not bool(fem.get('isHeatFluxInput', False)):
+            continue
+        heatFlux = fem.get('heatFlux') or {}
+        inputVariable = str(heatFlux.get('inputVariable', 'heatFlux'))
+        if inputVariable not in ('heatFlux', 'power'):
+            raise NotImplementedError(
+                f'unsupported FEM-network heat-flux input variable: {inputVariable!r}'
+            )
+        value = _fixedTableValue(
+            heatFlux.get('heatFlux1D', {}), 'FEM-network prescribed heat flux'
+        )
+        patchUuid = str(fem.get('patchUuid', '')).strip()
+        if not patchUuid:
+            raise ValueError(
+                f'FEM-network interface {interfaceUuid!r} has no FEM patch UUID'
+            )
+        if patchUuid in overrides:
+            raise ValueError(
+                f'multiple FEM-network heat-flux inputs target patch {patchUuid!r}'
+            )
+        overrides[patchUuid] = {
+            'boundaryInputType': 'prescribedHeatFlux',
+            'boundaryTypeId': PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
+            'htcWPerM2K': 0.0,
+            'ambientTemperatureK': 0.0,
+            'absoluteTemperatureAnchor': False,
+            'prescribedHeatFluxInputVariable': inputVariable,
+            'prescribedHeatFluxValue': value,
+            'networkInterfaceUuid': str(interfaceUuid),
+            'networkBoundaryEnabled': True,
+        }
+    return overrides
 
 
 def _h5py():
@@ -198,8 +263,16 @@ def _boundaryNodeGeometry(
     boundaryNodes = np.flatnonzero(nodeAreas > 0.0)
     normalVectors = nodeAreaVectors[boundaryNodes]
     normalLengths = np.linalg.norm(normalVectors, axis=1)
+    cancelled = normalLengths <= np.finfo(np.float64).eps
+    for position in np.flatnonzero(cancelled):
+        node = boundaryNodes[position]
+        adjacent = np.flatnonzero(np.any(surfaceConnectivity == node, axis=1))
+        if adjacent.size:
+            candidate = adjacent[np.argmax(areas[adjacent])]
+            normalVectors[position] = areaVectors[candidate]
+            normalLengths[position] = areas[candidate]
     if np.any(normalLengths <= np.finfo(np.float64).eps):
-        raise ValueError('could not construct non-zero area-weighted boundary normals')
+        raise ValueError('could not construct non-zero boundary normals')
     normals = normalVectors / normalLengths[:, None]
     return boundaryNodes, normals, nodeAreas[boundaryNodes]
 
@@ -210,6 +283,7 @@ def _surfacePatchSamples(
     nodes: np.ndarray,
     surfaceConnectivity: np.ndarray,
     componentCenter: np.ndarray,
+    boundaryInputOverrides: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, list[dict[str, Any]]]:
     sourceNodes = []
     normals = []
@@ -217,6 +291,8 @@ def _surfacePatchSamples(
     patchIds = []
     patchMetadata = []
     triangleAssignments = np.zeros(surfaceConnectivity.shape[0], dtype=np.int64)
+    overrides = boundaryInputOverrides or {}
+    appliedOverrides: set[str] = set()
 
     def appendPatch(
         triangleIndices: np.ndarray,
@@ -236,6 +312,22 @@ def _surfacePatchSamples(
         normals.append(patchNormals)
         weights.append(patchWeights)
         patchIds.append(np.full(patchNodes.size, patchId, dtype=np.int64))
+        boundaryInput = _patchBoundaryInput(patch)
+        if patchUuid in overrides:
+            boundaryInput = {**boundaryInput, **overrides[patchUuid]}
+            appliedOverrides.add(patchUuid)
+        area = float(patchWeights.sum())
+        if boundaryInput.get('boundaryInputType') == 'prescribedHeatFlux':
+            value = float(boundaryInput['prescribedHeatFluxValue'])
+            inputVariable = boundaryInput['prescribedHeatFluxInputVariable']
+            prescribedFlux = value / area if inputVariable == 'power' else value
+            boundaryInput.update(
+                {
+                    'prescribedHeatFluxWPerM2': prescribedFlux,
+                    'prescribedHeatFlowRateW': prescribedFlux * area,
+                    'prescribedSurfaceHeatSourcePowerW': prescribedFlux * area,
+                }
+            )
         patchMetadata.append(
             {
                 'patchId': patchId,
@@ -248,8 +340,8 @@ def _surfacePatchSamples(
                 'tccEnabled': bool(patch.get('tccEnabled', False)),
                 'surfaceTriangleCount': int(triangleIndices.size),
                 'boundarySampleCount': int(patchNodes.size),
-                'surfaceAreaM2': float(patchWeights.sum()),
-                **_patchBoundaryInput(patch),
+                'surfaceAreaM2': area,
+                **boundaryInput,
             }
         )
 
@@ -298,6 +390,11 @@ def _surfacePatchSamples(
 
     if np.any(triangleAssignments != 1):
         raise ValueError('surface triangles must belong to exactly one surface patch')
+    missingOverrides = set(overrides) - appliedOverrides
+    if missingOverrides:
+        raise KeyError(
+            f'FEM-network heat-flux inputs reference unknown patches: {sorted(missingOverrides)}'
+        )
     return (
         np.concatenate(sourceNodes),
         np.vstack(normals),
@@ -408,6 +505,54 @@ def _overviewHeatFlowRates(resultFile: Any, overviewBase: str) -> dict[str, floa
     return {identifier: float(value) for identifier, value in zip(identifiers, values)}
 
 
+def _connectionEndpoint(value: Any) -> tuple[str, str]:
+    decoded = (
+        bytes(value).decode('utf-8', errors='replace')
+        if isinstance(value, (bytes, np.bytes_))
+        else str(value)
+    )
+    componentUuid, separator, remainder = decoded.partition('@')
+    patchUuid = remainder.split('&', 1)[0] if separator else ''
+    return componentUuid, patchUuid
+
+
+def _connectionHeatFlowRates(resultFile: Any, regionUuid: str) -> dict[str, float]:
+    """Return signed solver-connection heat flow for each patch of one FEM region.
+
+    The result connection table stores ``left endpoint, right endpoint, power``
+    triples. Its sign convention is positive from left to right, so heat entering
+    the left component is negative and heat entering the right component is
+    positive. This is the same sign convention used by the component PDE balance,
+    ``volume source + boundary heat flow = 0``.
+    """
+
+    path = 'connections/heatFlowRate'
+    if path not in resultFile:
+        return {}
+    values = np.asarray(resultFile[path]).reshape(-1)
+    if values.size % 3:
+        raise ValueError(
+            'connections/heatFlowRate must contain endpoint pairs and heat-flow values'
+        )
+    result: dict[str, float] = {}
+    for leftRaw, rightRaw, powerRaw in values.reshape(-1, 3):
+        leftComponent, leftPatch = _connectionEndpoint(leftRaw)
+        rightComponent, rightPatch = _connectionEndpoint(rightRaw)
+        decodedPower = (
+            bytes(powerRaw).decode('utf-8', errors='replace')
+            if isinstance(powerRaw, (bytes, np.bytes_))
+            else str(powerRaw)
+        )
+        power = float(decodedPower)
+        if not np.isfinite(power):
+            raise ValueError('connections/heatFlowRate must contain finite values')
+        if leftComponent == str(regionUuid) and leftPatch:
+            result[leftPatch] = result.get(leftPatch, 0.0) - power
+        if rightComponent == str(regionUuid) and rightPatch:
+            result[rightPatch] = result.get(rightPatch, 0.0) + power
+    return result
+
+
 def _interfaceMetadataByPatch(
     femSystem: dict[str, Any], regionUuid: str
 ) -> dict[str, dict[str, Any]]:
@@ -438,13 +583,71 @@ def _regionName(region: dict[str, Any]) -> str:
     return str(region.get('name', '')).strip()
 
 
+_COMPONENT_INSTANCE_ALIASES = {
+    '转子铁芯': 'rotor_core',
+    '端板': 'end_plate',
+    '端板1': 'end_plate_1',
+    '端板2': 'end_plate_2',
+    '轴承外圈': 'bearing_outer_ring',
+    '轴承内圈': 'bearing_inner_ring',
+    '轴承支架': 'bearing_support',
+    '转轴': 'shaft',
+    '球': 'bearing_ball',
+    '绕组槽部': 'winding_slot',
+    '绕组皇冠端': 'winding_crown_end',
+    '绕组焊接端': 'winding_weld_end',
+    '定子铁芯': 'stator',
+    '轴': 'shaft',
+    '隔磁板': 'magnetic_isolation_plate',
+    '隔磁板1': 'magnetic_isolation_plate_1',
+    '隔磁板2': 'magnetic_isolation_plate_2',
+    '油箱': 'oil_tank',
+    '机箱': 'housing',
+    '轴承': 'bearing',
+    '磁钢': 'magnets',
+    '端盖': 'end_cap',
+    '阻尼条': 'damper_bar',
+    '行星轮': 'planet_gear',
+    '支架': 'carrier',
+    '支架轴承': 'carrier_bearing',
+    '齿圈': 'ring_gear',
+    '外壳': 'housing',
+}
+
+_NUMBERED_COMPONENT_INSTANCE_ALIASES = {
+    '端板': 'end_plate',
+    '轴承外圈': 'bearing_outer_ring',
+    '隔磁板': 'magnetic_isolation_plate',
+    '轴承': 'bearing',
+    '端盖': 'end_cap',
+    '阻尼条': 'damper_bar',
+    '行星轮': 'planet_gear',
+    '支架轴承': 'carrier_bearing',
+}
+
+
 def _normalizedComponentName(name: str) -> str:
     normalized = str(name).strip()
+    normalized = re.sub(r'\.(?:stp|step|igs|iges)$', '', normalized, flags=re.IGNORECASE)
     if normalized.lower().endswith('_mm'):
         normalized = normalized[:-3]
+    compact = re.sub(r'\s+', '', normalized)
+    if compact in _COMPONENT_INSTANCE_ALIASES:
+        return _COMPONENT_INSTANCE_ALIASES[compact]
+    for prefix, alias in sorted(
+        _NUMBERED_COMPONENT_INSTANCE_ALIASES.items(),
+        key=lambda item: len(item[0]),
+        reverse=True,
+    ):
+        match = re.fullmatch(re.escape(prefix) + r'([0-9]+)', compact)
+        if match is not None:
+            return f'{alias}_{match.group(1)}'
     normalized = re.sub(r'[^A-Za-z0-9_-]+', '_', normalized).strip('_')
     if not normalized:
-        raise ValueError('component name cannot be normalized to an empty identifier')
+        codepoints = '_'.join(f'u{ord(character):x}' for character in compact)
+        if not codepoints:
+            raise ValueError('component name cannot be normalized to an empty identifier')
+        return f'component_{codepoints}'
     return normalized.lower()
 
 
@@ -453,7 +656,104 @@ def _componentTypeName(componentName: str) -> str:
     normalized = _normalizedComponentName(componentName)
     if re.fullmatch(r'disk(?:[_-]?\d+)?', normalized):
         return 'magnetic_isolation_plate'
+    if normalized.startswith('magnetic_isolation_plate'):
+        return 'magnetic_isolation_plate'
+    if 'shaft' in normalized or re.fullmatch(r'zhou[_-]?\d+', normalized):
+        return 'shaft'
+    if re.fullmatch(r'(?:cap(?:s|[_-]?\d+)?|end[_-]?cap(?:[_-]?\d+)?)', normalized):
+        return 'end_cap'
+    if 'insulating_paper' in normalized or normalized.startswith('insulation'):
+        return 'insulation'
+    if 'bearing' in normalized or re.fullmatch(r'b[_-]?\d+', normalized):
+        return 'bearing'
+    if 'magnet' in normalized:
+        return 'magnets'
+    if normalized.startswith('stator') or normalized.startswith('st_fe'):
+        return 'stator'
+    if (
+        normalized in {'shell', 'pan'}
+        or 'shell' in normalized
+        or normalized.startswith('housing')
+    ):
+        return 'housing'
+    if 'coil' in normalized or 'winding' in normalized:
+        return 'winding'
+    if (
+        normalized == 'rotor'
+        or normalized.endswith('_rotor')
+        or normalized.startswith('rotor_fe')
+        or normalized.startswith('rt_fe')
+    ):
+        return 'rotor_core'
+    if 'sleeve' in normalized:
+        return 'sleeve'
+    if normalized.startswith('end_plate'):
+        return 'end_plate'
+    if normalized == 'oil_tank':
+        return 'oil_tank'
+    if normalized.startswith('damper_bar'):
+        return 'damper_bar'
+    if normalized.startswith('planet_gear'):
+        return 'planet_gear'
+    if normalized.startswith('ring_gear'):
+        return 'ring_gear'
+    if normalized == 'carrier':
+        return 'carrier'
+    if 'hub' in normalized:
+        return 'wheel_hub'
+    if 'sprayring' in normalized or 'spray_ring' in normalized:
+        return 'cooling_ring'
+    if 'rotorplate' in normalized or 'rotor_plate' in normalized:
+        return 'end_plate'
+    if normalized == 'fem':
+        return 'gear'
+    if 'gear' in normalized or re.fullmatch(r'g[_-]?\d+(?:[_-]\d+)?', normalized):
+        return 'gear'
     return normalized
+
+
+def _resolveFemSystem(control: dict[str, Any]) -> tuple[str, dict[str, Any], str]:
+    candidates = []
+
+    def visit(system: dict[str, Any]) -> None:
+        thermal = system.get('thermalComponents', {})
+        for femSystemUuid, femSystem in thermal.get('fem3DThermals', {}).items():
+            if femSystem.get('femRegions'):
+                candidates.append(
+                    (
+                        str(femSystemUuid),
+                        {
+                            **femSystem,
+                            'femNetworkInterfaces': thermal.get(
+                                'femNetworkInterfaces', {}
+                            ),
+                        },
+                        'nestedFem3DThermal',
+                    )
+                )
+        directRegions = thermal.get('femRegions')
+        if directRegions:
+            candidates.append(
+                (
+                    str(system.get('uuid', 'rootSystem')),
+                    {
+                        'femRegions': directRegions,
+                        'tccInterfaces': thermal.get('femFemTccInterfaces', {}),
+                        'femNetworkInterfaces': thermal.get('femNetworkInterfaces', {}),
+                    },
+                    'directFemRegions',
+                )
+            )
+        for child in system.get('children', {}).values():
+            if isinstance(child, dict):
+                visit(child)
+
+    visit(control['rootSystem'])
+    if not candidates:
+        raise KeyError('control data contains neither fem3DThermals nor direct femRegions')
+    if len(candidates) != 1:
+        raise ValueError(f'expected exactly one 3D FEM system, found {len(candidates)}')
+    return candidates[0]
 
 
 def _findRegion(femSystem: dict[str, Any], component: str) -> tuple[str, dict[str, Any]]:
@@ -478,10 +778,7 @@ def _findRegion(femSystem: dict[str, Any], component: str) -> tuple[str, dict[st
 def motorFemComponentNames(caseDirectory: str | Path) -> tuple[str, ...]:
     controlPath = Path(caseDirectory) / 'controlData.json'
     control = json.loads(controlPath.read_text(encoding='utf-8'))
-    femSystems = control['rootSystem']['thermalComponents']['fem3DThermals']
-    if len(femSystems) != 1:
-        raise ValueError(f'expected exactly one 3D FEM system, found {len(femSystems)}')
-    femSystem = next(iter(femSystems.values()))
+    _, femSystem, _ = _resolveFemSystem(control)
     names = tuple(
         _normalizedComponentName(_regionName(region))
         for region in femSystem.get('femRegions', {}).values()
@@ -523,6 +820,48 @@ def _resultFile(
             f'found {len(files)}'
         )
     return files[0]
+
+
+def _thermalAnalysisMetadata(
+    control: dict[str, Any],
+    *,
+    snapshotTimeS: float | None = None,
+) -> dict[str, Any]:
+    timeDomain = control.get('solverSetting', {}).get('timeDomain', {})
+    rawTransient = timeDomain.get('isTransient')
+    if not isinstance(rawTransient, (bool, np.bool_)):
+        return {
+            'analysisType': 'unknown',
+            'isTransient': None,
+            'temporalSampleType': 'unknownSnapshot',
+            'timeSeriesStored': False,
+        }
+    isTransient = bool(rawTransient)
+    metadata: dict[str, Any] = {
+        'analysisType': 'transient' if isTransient else 'steady',
+        'isTransient': isTransient,
+        'temporalSampleType': 'transientSnapshot' if isTransient else 'steadySolution',
+        'timeSeriesStored': False,
+    }
+    if not isTransient:
+        return metadata
+    for sourceName, targetName in (
+        ('deltaTime', 'sourceTimeStepS'),
+        ('endTime', 'sourceEndTimeS'),
+    ):
+        rawValue = timeDomain.get(sourceName)
+        if rawValue is None:
+            continue
+        value = float(rawValue)
+        if not np.isfinite(value) or value <= 0.0:
+            raise ValueError(f'transient solver {sourceName} must be positive and finite')
+        metadata[targetName] = value
+    if snapshotTimeS is not None:
+        value = float(snapshotTimeS)
+        if not np.isfinite(value) or value < 0.0:
+            raise ValueError('transient snapshotTimeS must be non-negative and finite')
+        metadata['snapshotTimeS'] = value
+    return metadata
 
 
 def _fixedHeatSourceValue(group: dict[str, Any]) -> tuple[str, float] | None:
@@ -597,10 +936,8 @@ def buildMotorFemComponentCase(
         raise FileNotFoundError(f'case directory does not contain controlData.json/h5: {caseRoot}')
 
     control = json.loads(controlJsonPath.read_text(encoding='utf-8'))
-    femSystems = control['rootSystem']['thermalComponents']['fem3DThermals']
-    if len(femSystems) != 1:
-        raise ValueError(f'expected exactly one 3D FEM system, found {len(femSystems)}')
-    femSystemUuid, femSystem = next(iter(femSystems.items()))
+    analysisMetadata = _thermalAnalysisMetadata(control, snapshotTimeS=resultTime)
+    femSystemUuid, femSystem, femSchema = _resolveFemSystem(control)
     regionUuid, region = _findRegion(femSystem, component)
     componentName = _normalizedComponentName(_regionName(region))
     componentType = _componentTypeName(componentName)
@@ -639,10 +976,13 @@ def buildMotorFemComponentCase(
             nodes,
             surfaceTriangles,
             componentCenter,
+            _networkBoundaryInputs(femSystem, regionUuid),
         )
 
     resultBase = (
         f'thermalComponents/thermal3dFem/{femSystemUuid}/{regionUuid}/3dResults/results'
+        if femSchema == 'nestedFem3DThermal'
+        else f'thermalComponents/femRegion/{regionUuid}/results'
     )
     with h5py.File(resultPath, 'r') as resultFile:
         temperatures = np.asarray(
@@ -654,6 +994,8 @@ def buildMotorFemComponentCase(
         overviewBase = (
             f'thermalComponents/thermal3dFem/{femSystemUuid}/{regionUuid}'
             '/overviewResults'
+            if femSchema == 'nestedFem3DThermal'
+            else f'thermalComponents/femRegion/{regionUuid}/overviewResults'
         )
         overviewPath = f'{overviewBase}/results/heatFlowRate'
         overviewBoundaryPower = (
@@ -662,6 +1004,7 @@ def buildMotorFemComponentCase(
             else None
         )
         overviewHeatFlowRates = _overviewHeatFlowRates(resultFile, overviewBase)
+        connectionHeatFlowRates = _connectionHeatFlowRates(resultFile, regionUuid)
     if temperatures.size != nodes.shape[0] or nodalHeatFlow.size != nodes.shape[0]:
         raise ValueError('3D FEM result arrays must contain one value per mesh node')
     if not np.all(np.isfinite(temperatures)) or not np.all(np.isfinite(nodalHeatFlow)):
@@ -692,11 +1035,19 @@ def buildMotorFemComponentCase(
             np.dot(patchBoundaryHeatFlux[mask], patchBoundaryWeights[mask])
         )
         expectedOverviewPower = overviewHeatFlowRates.get(patch['patchName'])
-        expectedPower = (
-            -float(expectedOverviewPower)
-            if expectedOverviewPower is not None
-            else globalScaledPatchPower
-        )
+        connectionHeatFlowRate = connectionHeatFlowRates.get(patch['patchUuid'])
+        if patch['boundaryInputType'] == 'prescribedHeatFlux':
+            expectedPower = float(patch['prescribedHeatFlowRateW'])
+            resultHeatFlowSource = 'prescribedInput'
+        elif connectionHeatFlowRate is not None:
+            expectedPower = float(connectionHeatFlowRate)
+            resultHeatFlowSource = 'connectionTable'
+        elif expectedOverviewPower is not None:
+            expectedPower = -float(expectedOverviewPower)
+            resultHeatFlowSource = 'overview'
+        else:
+            expectedPower = globalScaledPatchPower
+            resultHeatFlowSource = 'nodalBoundary'
         calibratedPatchHeatFlux = patchBoundaryHeatFlux[mask].copy()
         _matchIntegratedPower(
             calibratedPatchHeatFlux, patchBoundaryWeights[mask], expectedPower
@@ -719,6 +1070,8 @@ def buildMotorFemComponentCase(
                     else 0.0
                 ),
                 'overviewHeatFlowRateW': expectedOverviewPower,
+                'connectionHeatFlowRateW': connectionHeatFlowRate,
+                'resultHeatFlowSource': resultHeatFlowSource,
                 'localHeatFlowScale': (
                     reconstructedPower / rawPatchPower
                     if abs(rawPatchPower) > np.finfo(float).eps
@@ -738,7 +1091,9 @@ def buildMotorFemComponentCase(
         boundaryTypeIds[mask] = int(patch['boundaryTypeId'])
         boundaryHtc[mask] = float(patch['htcWPerM2K'])
         boundaryAmbientTemperature[mask] = float(patch['ambientTemperatureK'])
-        if patch['boundaryInputType'] != 'resultHeatFlux':
+        if patch['boundaryInputType'] == 'prescribedHeatFlux':
+            boundaryInputHeatFlux[mask] = float(patch['prescribedHeatFluxWPerM2'])
+        elif patch['boundaryInputType'] != 'resultHeatFlux':
             boundaryInputHeatFlux[mask] = 0.0
 
     with h5py.File(controlH5Path, 'r') as controlFile:
@@ -790,6 +1145,17 @@ def buildMotorFemComponentCase(
     selectedBoundaryHeatFlux = boundaryInputHeatFlux[boundarySelection].copy()
     resultFluxMask = selectedBoundaryTypes == RESULT_HEAT_FLUX_BOUNDARY_TYPE
     selectedBoundaryHeatFlux[resultFluxMask] = selectedResultHeatFlux[resultFluxMask]
+    prescribedFluxMask = (
+        selectedBoundaryTypes == PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE
+    )
+    for patch in patchMetadata:
+        selectedMask = selectedPatchIds == int(patch['patchId'])
+        patch['sampledBoundaryInputHeatFlowRateW'] = float(
+            np.dot(
+                selectedBoundaryHeatFlux[selectedMask],
+                selectedBoundaryWeights[selectedMask],
+            )
+        )
     queryCandidates = np.flatnonzero(nodeVolumeWeights > 0.0)
     querySelection, selectedQueryWeights = _sampleWithConservedWeight(
         nodeVolumeWeights[queryCandidates], maximumQuerySamples, randomSeed + 2
@@ -818,10 +1184,27 @@ def buildMotorFemComponentCase(
         raise ValueError('parentCaseId must be non-empty and cannot contain path separators')
 
     configuredPower = float(np.dot(heatSources, volumeWeights))
+    resultDerivedBoundaryPower = float(
+        np.dot(
+            selectedBoundaryHeatFlux[~prescribedFluxMask],
+            selectedBoundaryWeights[~prescribedFluxMask],
+        )
+    )
+    prescribedBoundaryPower = float(
+        np.dot(
+            selectedBoundaryHeatFlux[prescribedFluxMask],
+            selectedBoundaryWeights[prescribedFluxMask],
+        )
+    )
     expectedBoundaryPower = (
         -overviewBoundaryPower
         if overviewBoundaryPower is not None
         else exportedBoundaryPower
+    )
+    hybridBoundaryPower = resultDerivedBoundaryPower + prescribedBoundaryPower
+    steadyEnergyResidual = configuredPower + hybridBoundaryPower
+    steadyEnergyScale = max(
+        abs(configuredPower), abs(hybridBoundaryPower), np.finfo(np.float64).eps
     )
     return thermalComponentCase(
         caseId=f'{resolvedParentCaseId}-{componentName}',
@@ -859,14 +1242,24 @@ def buildMotorFemComponentCase(
             'absoluteTemperatureAnchor': float(
                 any(patch['absoluteTemperatureAnchor'] for patch in patchMetadata)
             ),
+            **(
+                {'snapshotTimeS': analysisMetadata['snapshotTimeS']}
+                if 'snapshotTimeS' in analysisMetadata
+                else {}
+            ),
         },
         metadata={
+            **analysisMetadata,
             'motorId': str(motorId).strip() if motorId is not None else None,
+            'systemType': 'electric_machine',
+            'assemblyType': 'motor',
+            'assemblyId': str(motorId).strip() if motorId is not None else None,
             'parentCaseId': resolvedParentCaseId,
             'sourceCase': sourceCaseName,
             'resultTime': resultTime,
             'resultFile': str(resultPath),
             'femSystemUuid': femSystemUuid,
+            'femSchema': femSchema,
             'regionUuid': regionUuid,
             'regionName': _regionName(region),
             'componentInstance': componentName,
@@ -886,8 +1279,25 @@ def buildMotorFemComponentCase(
             'rawExportedNodalBoundaryHeatFlowRateW': rawBoundaryPower,
             'overviewBoundaryHeatFlowRateW': overviewBoundaryPower,
             'boundaryHeatFlowScale': boundaryHeatFlowScale,
-            'prescribedBoundaryHeatFlowRateW': float(
-                np.dot(selectedBoundaryHeatFlux, selectedBoundaryWeights)
+            # Keep the result-derived and explicit-input contributions separate.
+            # ``boundary.totalHeatFlowRateW`` is the hybrid boundary input used by
+            # the learner, while ``expectedBoundaryHeatFlowRateW`` refers to the
+            # solved-result overview target and therefore must not be compared to
+            # the hybrid value when a FEM-network power input is present.
+            'resultDerivedBoundaryHeatFlowRateW': resultDerivedBoundaryPower,
+            'prescribedBoundaryHeatFlowRateW': prescribedBoundaryPower,
+            'hybridBoundaryInputHeatFlowRateW': hybridBoundaryPower,
+            'connectionBoundaryHeatFlowRateW': float(
+                sum(connectionHeatFlowRates.values())
+            ),
+            'connectionBoundaryPatchCount': int(len(connectionHeatFlowRates)),
+            'steadyEnergyResidualW': steadyEnergyResidual,
+            'steadyEnergyRelativeResidual': abs(steadyEnergyResidual) / steadyEnergyScale,
+            'prescribedSurfaceHeatSourcePowerW': float(
+                sum(
+                    patch.get('prescribedHeatFlowRateW', 0.0)
+                    for patch in patchMetadata
+                )
             ),
             'absoluteTemperatureAnchorAvailable': bool(
                 any(patch['absoluteTemperatureAnchor'] for patch in patchMetadata)
@@ -914,31 +1324,38 @@ def formatMotorFemBoundaryHeatFlowReport(case: thermalComponentCase) -> str:
     patches = case.metadata.get('surfacePatches', [])
     lines = [
         f'case={case.caseId} component={case.componentType}',
-        'patch | area[m2] | expected[W] | reconstructed[W] | sampled[W] | error[W]',
+        'patch | inputType | area[m2] | resultExpected[W] | '
+        'resultReconstructed[W] | datasetInput[W]',
     ]
     for patch in patches:
         lines.append(
-            '{name} | {area:.9g} | {expected:.9g} | {reconstructed:.9g} | '
-            '{sampled:.9g} | {error:.3e}'.format(
+            '{name} | {inputType} | {area:.9g} | {expected:.9g} | '
+            '{reconstructed:.9g} | {datasetInput:.9g}'.format(
                 name=patch['patchName'],
+                inputType=patch['boundaryInputType'],
                 area=float(patch['surfaceAreaM2']),
                 expected=float(patch['expectedHeatFlowRateW']),
-                reconstructed=float(patch['reconstructedHeatFlowRateW']),
-                sampled=float(patch['sampledReconstructedHeatFlowRateW']),
-                error=float(patch['sampledHeatFlowErrorW']),
+                reconstructed=float(patch['sampledReconstructedHeatFlowRateW']),
+                datasetInput=float(patch['sampledBoundaryInputHeatFlowRateW']),
             )
         )
     lines.append(
-        'TOTAL | {area:.9g} | {expected:.9g} | {reconstructed:.9g} | '
-        '{sampled:.9g} | {error:.3e}'.format(
+        'RESULT TOTAL | area={area:.9g} m2 | expected={expected:.9g} W | '
+        'reconstructed={reconstructed:.9g} W | error={error:.3e} W'.format(
             area=float(case.boundary.weightsM2.sum()),
             expected=float(case.metadata['expectedBoundaryHeatFlowRateW']),
             reconstructed=float(case.metadata['exportedBoundaryHeatFlowRateW']),
-            sampled=case.boundary.totalHeatFlowRateW,
             error=(
-                case.boundary.totalHeatFlowRateW
+                float(case.metadata['exportedBoundaryHeatFlowRateW'])
                 - float(case.metadata['expectedBoundaryHeatFlowRateW'])
             ),
+        )
+    )
+    lines.append(
+        'DATASET INPUT TOTAL | hybrid={hybrid:.9g} W | prescribedSurfaceSource='
+        '{prescribed:.9g} W'.format(
+            hybrid=float(case.metadata['hybridBoundaryInputHeatFlowRateW']),
+            prescribed=float(case.metadata['prescribedSurfaceHeatSourcePowerW']),
         )
     )
     lines.append(

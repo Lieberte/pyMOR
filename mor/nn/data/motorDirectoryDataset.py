@@ -9,6 +9,7 @@ from typing import Sequence
 from .motorFemComponentCase import (
     CONVECTION_BOUNDARY_TYPE,
     FIXED_TEMPERATURE_BOUNDARY_TYPE,
+    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
     buildMotorFemComponentCase,
     motorFemComponentNames,
@@ -121,6 +122,7 @@ def buildMotorDatasetFromDirectories(
             RESULT_HEAT_FLUX_BOUNDARY_TYPE: 'resultHeatFlux',
             CONVECTION_BOUNDARY_TYPE: 'convection',
             FIXED_TEMPERATURE_BOUNDARY_TYPE: 'fixedTemperature',
+            PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE: 'prescribedHeatFlux',
         },
         datasetMetadata={
             'datasetType': 'motorFemComponentCasesFromDirectories',

@@ -124,6 +124,30 @@ def loadGeometryRecognitionDatasetRecords(
         raise ValueError('geometry dataset index must contain a JSON object')
     if not index.get('connectivityStored', False):
         raise ValueError('geometry recognition requires the graph dataset view')
+    tasks = index.get('tasks', {})
+    if not isinstance(tasks, dict):
+        raise ValueError('geometry dataset tasks must contain a JSON object')
+    classificationTask = tasks.get('geometryComponentClassification')
+    declaredClasses = None
+    if classificationTask is not None:
+        if not isinstance(classificationTask, dict):
+            raise ValueError('geometry component classification task must be a JSON object')
+        if classificationTask.get('targetField') != 'componentType':
+            raise ValueError(
+                'geometry component classification targetField must be componentType'
+            )
+        rawClasses = classificationTask.get('classes')
+        if not isinstance(rawClasses, list) or not rawClasses:
+            raise ValueError(
+                'geometry component classification classes must be a non-empty list'
+            )
+        declaredClasses = {
+            str(value).strip() for value in rawClasses if str(value).strip()
+        }
+        if len(declaredClasses) != len(rawClasses):
+            raise ValueError(
+                'geometry component classification classes must be unique non-empty names'
+            )
     entries = index.get('cases')
     if not isinstance(entries, list) or not entries:
         raise ValueError('geometry dataset index must contain a non-empty cases list')
@@ -140,6 +164,11 @@ def loadGeometryRecognitionDatasetRecords(
         if not caseId or not geometryId or not meshUuid or not relativePath:
             raise ValueError('every geometry dataset entry must contain caseId, geometryId, meshUuid, and path')
         componentType = _optionalIdentifier(entry.get('componentType'))
+        if declaredClasses is not None and componentType not in declaredClasses:
+            raise ValueError(
+                f'componentType {componentType!r} is not declared in the geometry '
+                'component classification classes'
+            )
         previousLabel = labelsByMesh.setdefault(meshUuid, componentType)
         if previousLabel != componentType:
             raise ValueError(

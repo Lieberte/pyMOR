@@ -11,6 +11,7 @@ import numpy as np
 from .motorFemComponentCase import (
     CONVECTION_BOUNDARY_TYPE,
     FIXED_TEMPERATURE_BOUNDARY_TYPE,
+    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
     _matchIntegratedPower,
     _sampleByGroupWithConservedWeight,
@@ -33,6 +34,7 @@ CANONICAL_THERMAL_BOUNDARY_TYPE_NAMES = {
     RESULT_HEAT_FLUX_BOUNDARY_TYPE: 'resultHeatFlux',
     CONVECTION_BOUNDARY_TYPE: 'convection',
     FIXED_TEMPERATURE_BOUNDARY_TYPE: 'fixedTemperature',
+    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE: 'prescribedHeatFlux',
 }
 
 
@@ -69,6 +71,9 @@ def _normalizedBoundaryName(value: str) -> str:
         'constanttemperature': 'fixedTemperature',
         'constt': 'fixedTemperature',
         'dirichlet': 'fixedTemperature',
+        'prescribedheatflux': 'prescribedHeatFlux',
+        'prescribedpower': 'prescribedHeatFlux',
+        'surfaceheatflux': 'prescribedHeatFlux',
     }
     try:
         return aliases[normalized]
@@ -296,7 +301,10 @@ def loadThermalDatasetAuto(
         viewsPath = sourcePath / 'views.json'
         if viewsPath.is_file():
             views = json.loads(viewsPath.read_text(encoding='utf-8')).get('views', {})
-            key = 'wholeMotor' if normalizedView == 'wholemotor' else 'component'
+            if normalizedView == 'wholemotor':
+                key = 'wholeMotor' if 'wholeMotor' in views else 'pointWholeMotor'
+            else:
+                key = 'component' if 'component' in views else 'point'
             indexPath = sourcePath / views[key]
         elif normalizedView == 'wholemotor' and (sourcePath / 'whole_motor' / 'dataset.json').is_file():
             indexPath = sourcePath / 'whole_motor' / 'dataset.json'
@@ -449,4 +457,132 @@ def subsampleThermalComponentCase(
                 'randomSeed': int(randomSeed),
             },
         },
+    )
+
+
+def loadSubsampledThermalDataset(
+    source: str | Path,
+    *,
+    analysisType: str | None = None,
+    componentTypes: Sequence[str] | None = None,
+    maximumVolumeSamples: int | None = None,
+    maximumBoundarySamples: int | None = None,
+    maximumQuerySamples: int | None = None,
+    randomSeed: int = 0,
+) -> thermalDatasetView:
+    """Load and immediately subsample component cases one at a time.
+
+    Unlike :func:`loadThermalDatasetAuto`, this keeps only the sampled arrays in
+    memory. It is intended for full-resolution point datasets whose aggregate
+    field files are substantially larger than memory.
+    """
+
+    sourcePath = Path(source)
+    if sourcePath.is_file():
+        indexPath = sourcePath
+    else:
+        viewsPath = sourcePath / 'views.json'
+        if viewsPath.is_file():
+            views = json.loads(viewsPath.read_text(encoding='utf-8')).get('views', {})
+            analysisKey = (
+                None
+                if analysisType is None
+                else f'point{str(analysisType).strip().capitalize()}'
+            )
+            key = (
+                analysisKey
+                if analysisKey in views
+                else ('component' if 'component' in views else 'point')
+            )
+            indexPath = sourcePath / views[key]
+        else:
+            indexPath = sourcePath / 'dataset.json'
+    if not indexPath.is_file():
+        raise FileNotFoundError(f'thermal dataset index does not exist: {indexPath}')
+    index = json.loads(indexPath.read_text(encoding='utf-8'))
+    if index.get('formatVersion') == WHOLE_MOTOR_FORMAT_VERSION:
+        raise ValueError('streaming subsampling requires a component dataset')
+
+    selectedComponents = (
+        None
+        if componentTypes is None
+        else frozenset(str(value) for value in componentTypes)
+    )
+    requestedAnalysis = None if analysisType is None else str(analysisType)
+    names = _boundaryTypeNames(index)
+    datasetMetadata = dict(index.get('metadata', {}))
+    cases = []
+    grouped: dict[tuple[str | None, str], list[thermalComponentCase]] = {}
+    hierarchyFields = (
+        'systemType',
+        'assemblyType',
+        'assemblyId',
+        'componentInstance',
+        'analysisType',
+        'temporalSampleType',
+        'snapshotTimeS',
+    )
+    for entryIndex, entry in enumerate(index.get('cases', ())):
+        entryAnalysis = str(
+            entry.get('analysisType', datasetMetadata.get('analysisType', 'steady'))
+        )
+        if requestedAnalysis is not None and entryAnalysis != requestedAnalysis:
+            continue
+        entryComponent = str(entry.get('componentType', '')).strip()
+        if selectedComponents is not None and entryComponent not in selectedComponents:
+            continue
+
+        raw = loadThermalComponentCase(indexPath.parent / entry['path'])
+        rawMotorId = (
+            raw.metadata.get('motorId')
+            or entry.get('motorId')
+            or datasetMetadata.get('motorId')
+        )
+        motorId = str(rawMotorId).strip() if rawMotorId not in (None, '') else None
+        rawParentId = (
+            raw.metadata.get('parentCaseId')
+            or entry.get('parentCaseId')
+            or datasetMetadata.get('parentCaseId')
+            or raw.caseId
+        )
+        parentCaseId = str(rawParentId).strip()
+        case = _canonicalCase(
+            raw,
+            boundaryTypeNames=names,
+            sourcePath=indexPath,
+            motorId=motorId,
+            parentCaseId=parentCaseId,
+        )
+        hierarchy = {
+            field: entry[field]
+            for field in hierarchyFields
+            if entry.get(field) is not None
+        }
+        case = replace(case, metadata={**case.metadata, **hierarchy})
+        case = subsampleThermalComponentCase(
+            case,
+            maximumVolumeSamples=maximumVolumeSamples,
+            maximumBoundarySamples=maximumBoundarySamples,
+            maximumQuerySamples=maximumQuerySamples,
+            randomSeed=randomSeed + entryIndex,
+        )
+        cases.append(case)
+        grouped.setdefault((motorId, parentCaseId), []).append(case)
+
+    groups = tuple(
+        thermalDatasetGroup(
+            motorId=motorId,
+            parentCaseId=parentCaseId,
+            caseIds=tuple(case.caseId for case in groupCases),
+            metadata=dict(datasetMetadata),
+        )
+        for (motorId, parentCaseId), groupCases in grouped.items()
+    )
+    return thermalDatasetView(
+        sourcePath=indexPath,
+        viewType='components',
+        cases=tuple(cases),
+        groups=groups,
+        boundaryTypeNames=dict(CANONICAL_THERMAL_BOUNDARY_TYPE_NAMES),
+        metadata=datasetMetadata,
     )

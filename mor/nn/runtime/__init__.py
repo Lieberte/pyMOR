@@ -7,6 +7,10 @@ from .geometryComponentRecognizer import (
     geometryDescriptor,
     geometryDescriptorConfig,
 )
+from .thermalCategorizedPredictor import (
+    thermalCategorizedPredictor,
+    thermalComponentPrediction,
+)
 
 __all__ = [
     'runtimeSession',
@@ -16,4 +20,6 @@ __all__ = [
     'geometryComponentCandidate',
     'geometryComponentPrediction',
     'geometryComponentRecognizer',
+    'thermalCategorizedPredictor',
+    'thermalComponentPrediction',
 ]

@@ -19,6 +19,7 @@ from .thermalComponentCase import (
 from .motorFemComponentCase import (
     CONVECTION_BOUNDARY_TYPE,
     FIXED_TEMPERATURE_BOUNDARY_TYPE as MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE,
+    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
     buildMotorFemComponentCase,
     buildMotorFemComponentCases,
@@ -41,6 +42,19 @@ from .motorFullResolutionDataset import (
     POINT_FORMAT_VERSION,
     buildFullResolutionMotorDatasetFromDirectories,
 )
+from .motorTransientDataset import (
+    TRANSIENT_SERIES_FORMAT_VERSION,
+    buildMotorTransientSeriesFromSta,
+    loadMotorTransientSeriesRecords,
+    motorTransientFrame,
+    motorTransientSeriesRecord,
+    motorTransientTransition,
+    writeMotorThermalAnalysisIndexes,
+)
+from .assemblyHierarchy import (
+    ASSEMBLY_HIERARCHY_FORMAT_VERSION,
+    writeAssemblyHierarchyIndexes,
+)
 from .motorWholeDataset import (
     WHOLE_MOTOR_FORMAT_VERSION,
     loadWholeMotorDataset,
@@ -50,6 +64,7 @@ from .motorWholeDataset import (
 )
 from .thermalDatasetAdapter import (
     CANONICAL_THERMAL_BOUNDARY_TYPE_NAMES,
+    loadSubsampledThermalDataset,
     loadThermalDatasetAuto,
     loadThermalTrainingCases,
     splitThermalCasesByMotorId,
@@ -78,6 +93,16 @@ from .geometryRecognition import (
     iterGeometryRecognitionCases,
     loadGeometryRecognitionCase,
     loadGeometryRecognitionDatasetRecords,
+)
+from .thermalAssemblyContext import (
+    THERMAL_ASSEMBLY_CONTEXT_V1,
+    enrichThermalAssemblyCases,
+    thermalAssemblyBoundaryFeatureNames,
+    thermalAssemblyContextFeatureNames,
+)
+from .thermalCheckpointData import (
+    DEFAULT_THERMAL_OPERATING_SCALES,
+    thermalCheckpointDataContract,
 )
 from .geometryPointCloudDataset import (
     buildGeometryPointCloudSamples,
@@ -110,6 +135,7 @@ __all__ = [
     'RESULT_HEAT_FLUX_BOUNDARY_TYPE',
     'CONVECTION_BOUNDARY_TYPE',
     'MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE',
+    'PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE',
     'buildMotorFemComponentCase',
     'buildMotorFemComponentCases',
     'formatMotorFemBoundaryHeatFlowReport',
@@ -124,6 +150,15 @@ __all__ = [
     'GRAPH_FORMAT_VERSION',
     'FULL_DATASET_FORMAT_VERSION',
     'buildFullResolutionMotorDatasetFromDirectories',
+    'TRANSIENT_SERIES_FORMAT_VERSION',
+    'motorTransientFrame',
+    'motorTransientTransition',
+    'motorTransientSeriesRecord',
+    'buildMotorTransientSeriesFromSta',
+    'loadMotorTransientSeriesRecords',
+    'writeMotorThermalAnalysisIndexes',
+    'ASSEMBLY_HIERARCHY_FORMAT_VERSION',
+    'writeAssemblyHierarchyIndexes',
     'WHOLE_MOTOR_FORMAT_VERSION',
     'wholeMotorCase',
     'wholeMotorDataset',
@@ -132,10 +167,17 @@ __all__ = [
     'CANONICAL_THERMAL_BOUNDARY_TYPE_NAMES',
     'thermalDatasetGroup',
     'thermalDatasetView',
+    'loadSubsampledThermalDataset',
     'loadThermalDatasetAuto',
     'loadThermalTrainingCases',
     'splitThermalCasesByMotorId',
     'subsampleThermalComponentCase',
+    'THERMAL_ASSEMBLY_CONTEXT_V1',
+    'enrichThermalAssemblyCases',
+    'thermalAssemblyBoundaryFeatureNames',
+    'thermalAssemblyContextFeatureNames',
+    'DEFAULT_THERMAL_OPERATING_SCALES',
+    'thermalCheckpointDataContract',
     'FIXED_TEMPERATURE_BOUNDARY_TYPE',
     'boxFemCase',
     'buildBoxFemCase',

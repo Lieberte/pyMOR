@@ -7,6 +7,9 @@ from pathlib import Path
 from typing import Iterable
 
 import numpy as np
+from scipy.sparse import coo_matrix
+from scipy.sparse.csgraph import connected_components
+from scipy.spatial import ConvexHull, QhullError
 
 from mor.nn.data.geometryRecognition import (
     geometryRecognitionCase,
@@ -14,7 +17,7 @@ from mor.nn.data.geometryRecognition import (
 )
 
 
-FORMAT_VERSION = 'geometry-component-recognizer-v1'
+FORMAT_VERSION = 'geometry-component-recognizer-v2'
 
 
 @dataclass(frozen=True)
@@ -26,6 +29,7 @@ class geometryDescriptorConfig:
     pairDistanceBins: int = 16
     normalBins: int = 12
     axisBins: int = 10
+    componentAreaSlots: int = 8
 
     def __post_init__(self):
         for field in fields(self):
@@ -46,6 +50,7 @@ class geometryDescriptor:
     sourceNodeCount: int
     sourceTriangleCount: int
     sampledPointCount: int
+    surfaceComponentCount: int
 
 
 @dataclass(frozen=True)
@@ -66,6 +71,7 @@ class geometryComponentPrediction:
     scaleMeters: float
     sourceNodeCount: int
     sampledPointCount: int
+    surfaceComponentCount: int
     modelVersion: str = FORMAT_VERSION
 
     def toDict(self) -> dict:
@@ -80,6 +86,7 @@ class geometryComponentPrediction:
                 'scaleMeters': self.scaleMeters,
                 'sourceNodeCount': self.sourceNodeCount,
                 'sampledPointCount': self.sampledPointCount,
+                'surfaceComponentCount': self.surfaceComponentCount,
             },
             'modelVersion': self.modelVersion,
         }
@@ -158,6 +165,85 @@ def _pairValues(points: np.ndarray, normals: np.ndarray, count: int):
     return distances, normalDots
 
 
+def _surfaceComponentFeatures(
+    case: geometryRecognitionCase,
+    areas: np.ndarray,
+    positive: np.ndarray,
+    slots: int,
+):
+    triangles = case.surfaceTriangles[positive]
+    componentAreas = areas[positive]
+    _, inverse = np.unique(triangles, return_inverse=True)
+    inverse = inverse.reshape(-1, 3)
+    rows = np.concatenate((inverse[:, 0], inverse[:, 1], inverse[:, 2]))
+    columns = np.concatenate((inverse[:, 1], inverse[:, 2], inverse[:, 0]))
+    graph = coo_matrix(
+        (np.ones(rows.size, dtype=np.uint8), (rows, columns)),
+        shape=(int(inverse.max()) + 1, int(inverse.max()) + 1),
+    )
+    componentCount, labels = connected_components(
+        graph, directed=False, return_labels=True
+    )
+    areasByComponent = np.bincount(
+        labels[inverse[:, 0]], weights=componentAreas, minlength=componentCount
+    )
+    fractions = np.sort(areasByComponent / areasByComponent.sum())[::-1]
+    largestFractions = np.zeros(slots, dtype=np.float64)
+    copied = min(slots, componentCount)
+    largestFractions[:copied] = fractions[:copied]
+    epsilon = np.finfo(np.float64).eps
+    entropy = -float(np.sum(fractions * np.log(np.maximum(fractions, epsilon))))
+    normalizedEntropy = entropy / max(float(np.log(max(componentCount, 2))), epsilon)
+    effectiveCount = 1.0 / float(np.sum(fractions * fractions))
+    tailFraction = max(0.0, 1.0 - float(largestFractions.sum()))
+    return (
+        componentCount,
+        np.concatenate(
+            (
+                [np.log1p(componentCount)],
+                largestFractions,
+                [normalizedEntropy, np.log1p(effectiveCount), tailFraction],
+            )
+        ),
+    )
+
+
+def _convexityFeatures(
+    normalized: np.ndarray,
+    projected: np.ndarray,
+    surfaceArea: float,
+    scale: float,
+    volume: float | None,
+) -> np.ndarray:
+    epsilon = np.finfo(np.float64).eps
+    normalizedSurfaceArea = surfaceArea / (scale * scale)
+    normalizedVolume = volume / (scale**3) if volume is not None else None
+    surfaceHullRatio = 0.0
+    volumeHullRatio = 0.0
+    try:
+        hull = ConvexHull(normalized)
+        surfaceHullRatio = np.log1p(
+            normalizedSurfaceArea / max(float(hull.area), epsilon)
+        )
+        if normalizedVolume is not None:
+            volumeHullRatio = np.log1p(
+                normalizedVolume / max(float(hull.volume), epsilon)
+            )
+    except QhullError:
+        pass
+    extents = np.ptp(projected, axis=0)
+    boundingBoxVolume = float(np.prod(extents))
+    volumeBoundingBoxRatio = (
+        np.log1p(normalizedVolume / boundingBoxVolume)
+        if normalizedVolume is not None and boundingBoxVolume > epsilon
+        else 0.0
+    )
+    return np.asarray(
+        [surfaceHullRatio, volumeHullRatio, volumeBoundingBoxRatio],
+        dtype=np.float64,
+    )
+
+
 def extractGeometryDescriptor(
     case: geometryRecognitionCase,
     config: geometryDescriptorConfig | None = None,
@@ -197,6 +283,12 @@ def extractGeometryDescriptor(
     pairDistances, pairNormalDots = _pairValues(
         normalized, normals, config.pairSampleCount
     )
+    surfaceComponentCount, surfaceComponentFeatures = _surfaceComponentFeatures(
+        case, areas, positive, config.componentAreaSlots
+    )
+    convexityFeatures = _convexityFeatures(
+        normalized, projected, surfaceArea, scale, volume
+    )
     values = []
     names = []
 
@@ -224,6 +316,8 @@ def extractGeometryDescriptor(
         [np.log1p(volume / (scale**3)) if volume is not None else 0.0],
     )
     add('volume_available', [1.0 if volume is not None else 0.0])
+    add('surface_component', surfaceComponentFeatures)
+    add('convexity', convexityFeatures)
     descriptorValues = np.asarray(values, dtype=np.float64)
     if not np.all(np.isfinite(descriptorValues)):
         raise ValueError('geometry descriptor contains non-finite values')
@@ -237,6 +331,7 @@ def extractGeometryDescriptor(
         sourceNodeCount=int(case.nodesMeters.shape[0]),
         sourceTriangleCount=int(case.surfaceTriangles.shape[0]),
         sampledPointCount=int(points.shape[0]),
+        surfaceComponentCount=int(surfaceComponentCount),
     )
 
 
@@ -405,6 +500,7 @@ class geometryComponentRecognizer:
             scaleMeters=float(descriptor.scaleMeters),
             sourceNodeCount=descriptor.sourceNodeCount,
             sampledPointCount=descriptor.sampledPointCount,
+            surfaceComponentCount=descriptor.surfaceComponentCount,
         )
 
     def toDict(self) -> dict:

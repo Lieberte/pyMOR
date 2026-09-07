@@ -197,10 +197,12 @@ class thermalMeanShapeEnergyLoss(baseLoss):
             predictions = modelOutput['prediction']
             rawShape = modelOutput['shape']
             meanOffset = modelOutput['meanOffset']
+            decomposedOutput = True
         else:
             predictions = modelOutput
             rawShape = modelOutput
-            meanOffset = modelOutput.new_zeros((modelOutput.shape[0], 1, 1))
+            meanOffset = None
+            decomposedOutput = False
         targets = batch['targets']
         measureWeights = self._normalizedQueryWeights(
             batch,
@@ -219,10 +221,20 @@ class thermalMeanShapeEnergyLoss(baseLoss):
         rawShapeMean = torch.sum(
             measureWeights.unsqueeze(-1) * rawShape, dim=1, keepdim=True
         )
+        if meanOffset is None:
+            meanOffset = torch.sum(
+                measureWeights.unsqueeze(-1) * predictions,
+                dim=1,
+                keepdim=True,
+            )
         centeredShape = rawShape - rawShapeMean
         shapeError = (centeredShape - targetShape).square().squeeze(-1)
         shapeLoss = torch.mean(torch.sum(lossWeights * shapeError, dim=1))
-        gaugeLoss = torch.mean(rawShapeMean.square())
+        gaugeLoss = (
+            torch.mean(rawShapeMean.square())
+            if decomposedOutput
+            else predictions.new_zeros(())
+        )
         anchored = batch['globalFeatures'][:, self.anchorFeatureIndex] > 0.5
         if torch.any(anchored):
             meanError = meanOffset[anchored] - targetMean[anchored]

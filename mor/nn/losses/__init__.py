@@ -4,6 +4,7 @@ from .vaeReconstructionLoss import vaeReconstructionLoss
 from .oneStepPredictionLoss import oneStepPredictionLoss
 from .pdeResidualLoss import pdeResidualLoss
 from .thermalOperatorLoss import thermalMeanShapeEnergyLoss, thermalOperatorLoss
+from .thermalSteadyPinnLoss import thermalSteadyPinnLoss
 from . import pinn
 
 __all__ = [
@@ -14,5 +15,6 @@ __all__ = [
     'pdeResidualLoss',
     'thermalOperatorLoss',
     'thermalMeanShapeEnergyLoss',
+    'thermalSteadyPinnLoss',
     'pinn'
 ]

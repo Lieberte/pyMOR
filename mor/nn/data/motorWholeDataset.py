@@ -170,6 +170,42 @@ def saveWholeMotorDataset(
     resolvedCases = tuple(cases)
     if not resolvedCases:
         raise ValueError('whole-motor dataset requires at least one component case')
+    temporalLabels = {
+        (
+            case.metadata.get('analysisType', 'unknown'),
+            case.metadata.get('temporalSampleType', 'unknownSnapshot'),
+            case.metadata.get('snapshotTimeS'),
+        )
+        for case in resolvedCases
+    }
+    if len(temporalLabels) != 1:
+        raise ValueError('all components in one whole-motor case must share temporal labels')
+    analysisType, temporalSampleType, snapshotTimeS = next(iter(temporalLabels))
+    temporalFields = {
+        'analysisType': analysisType,
+        'temporalSampleType': temporalSampleType,
+        **(
+            {'snapshotTimeS': float(snapshotTimeS)}
+            if snapshotTimeS is not None
+            else {}
+        ),
+    }
+    hierarchyLabels = {
+        (
+            str(case.metadata.get('systemType', 'electric_machine')),
+            str(case.metadata.get('assemblyType', 'motor')),
+            str(case.metadata.get('assemblyId') or motorId),
+        )
+        for case in resolvedCases
+    }
+    if len(hierarchyLabels) != 1:
+        raise ValueError('all components in one whole assembly must share hierarchy labels')
+    systemType, assemblyType, assemblyId = next(iter(hierarchyLabels))
+    hierarchyFields = {
+        'systemType': systemType,
+        'assemblyType': assemblyType,
+        'assemblyId': assemblyId,
+    }
     root = Path(directory)
     caseRoot = root / 'cases' / parentCaseId
     manifestPath = caseRoot / 'manifest.json'
@@ -274,6 +310,8 @@ def saveWholeMotorDataset(
         'formatVersion': WHOLE_MOTOR_FORMAT_VERSION,
         'motorId': motorId,
         'parentCaseId': parentCaseId,
+        **hierarchyFields,
+        **temporalFields,
         'components': componentEntries,
         'interfaces': interfaces,
         'externalPatches': externalPatches,
@@ -304,6 +342,8 @@ def saveWholeMotorDataset(
     entry = {
         'motorId': motorId,
         'parentCaseId': parentCaseId,
+        **hierarchyFields,
+        **temporalFields,
         'path': (Path('cases') / parentCaseId).as_posix(),
         'metadata': _jsonReady(metadata or {}),
     }

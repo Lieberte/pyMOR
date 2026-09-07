@@ -35,6 +35,7 @@ class thermalOperatorTrainerTorch(baseTrainer):
         weightDecay: float = 0.0,
         gradientClip: float | None = 1.0,
         deviceName: str = 'cpu',
+        physicsInValidation: bool = True,
         **kwargs,
     ):
         super().__init__(trainerName='thermalOperatorTrainerTorch', **kwargs)
@@ -44,6 +45,7 @@ class thermalOperatorTrainerTorch(baseTrainer):
         self.weightDecay = float(weightDecay)
         self.gradientClip = None if gradientClip is None else float(gradientClip)
         self.deviceName = str(deviceName)
+        self.physicsInValidation = bool(physicsInValidation)
         if self.epochs <= 0 or self.learningRate <= 0.0 or self.weightDecay < 0.0:
             raise ValueError('invalid thermal operator trainer options')
 
@@ -66,11 +68,21 @@ class thermalOperatorTrainerTorch(baseTrainer):
                     self.lossFunction, 'requiresBoundaryPredictions', False
                 ):
                     boundaryPredictions = model(_boundaryQueryBatch(batch))
-                loss = self.lossFunction.computeBatch(
-                    modelOutput,
-                    batch,
-                    boundaryPredictions=boundaryPredictions,
-                )
+                if hasattr(self.lossFunction, 'computePinnBatch') and (
+                    optimizer is not None or self.physicsInValidation
+                ):
+                    loss = self.lossFunction.computePinnBatch(
+                        model,
+                        modelOutput,
+                        batch,
+                        boundaryPredictions=boundaryPredictions,
+                    )
+                else:
+                    loss = self.lossFunction.computeBatch(
+                        modelOutput,
+                        batch,
+                        boundaryPredictions=boundaryPredictions,
+                    )
             else:
                 predictions = model(batch)
                 loss = self.lossFunction.compute(
@@ -78,6 +90,11 @@ class thermalOperatorTrainerTorch(baseTrainer):
                     batch['targets'],
                     batch['queryWeights'],
                     batch['queryMask'],
+                )
+            if not torch.isfinite(loss):
+                caseIds = batch.get('caseIds', ())
+                raise FloatingPointError(
+                    f'non-finite thermal operator loss for cases: {caseIds}'
                 )
             if optimizer is not None:
                 loss.backward()
@@ -103,7 +120,19 @@ class thermalOperatorTrainerTorch(baseTrainer):
         validationLoader = dataModule.getValidationLoader()
         for epoch in range(self.epochs):
             trainLoss = self._epoch(model, trainLoader, device, optimizer)
-            with torch.no_grad():
+            validationContext = (
+                torch.enable_grad()
+                if (
+                    self.physicsInValidation
+                    and getattr(
+                        self.lossFunction,
+                        'requiresCoordinateGradients',
+                        False,
+                    )
+                )
+                else torch.no_grad()
+            )
+            with validationContext:
                 validationLoss = self._epoch(model, validationLoader, device)
             history['train'].append(trainLoss)
             history['validation'].append(validationLoss)

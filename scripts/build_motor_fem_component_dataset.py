@@ -7,6 +7,7 @@ from pathlib import Path
 from mor.nn.data import (
     CONVECTION_BOUNDARY_TYPE,
     MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE,
+    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
     buildMotorFemComponentCases,
     formatMotorFemBoundaryHeatFlowReport,
@@ -55,6 +56,7 @@ def main() -> None:
             RESULT_HEAT_FLUX_BOUNDARY_TYPE: 'resultHeatFlux',
             CONVECTION_BOUNDARY_TYPE: 'convection',
             MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE: 'fixedTemperature',
+            PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE: 'prescribedHeatFlux',
         },
         overwrite=arguments.overwrite,
     )

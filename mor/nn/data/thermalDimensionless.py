@@ -47,6 +47,14 @@ def anchorReferenceTemperatureK(
 ) -> float:
     if not hasAbsoluteTemperatureAnchor(case):
         raise ValueError(f'case has no absolute temperature anchor: {case.caseId}')
+    explicitReference = case.operatingFeatures.get('absoluteTemperatureReferenceK')
+    if explicitReference is not None:
+        explicitReference = float(explicitReference)
+        if not np.isfinite(explicitReference):
+            raise ValueError(
+                f'case has a non-finite absolute temperature reference: {case.caseId}'
+            )
+        return explicitReference
     convection = case.boundary.htcWPerM2K > 0.0
     fixedTemperature = _fixedTemperatureMask(case, schema)
     if np.any(fixedTemperature):

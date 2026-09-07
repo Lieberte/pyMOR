@@ -98,6 +98,42 @@ def test_descriptor_is_translation_scale_and_rotation_invariant():
     assert second.scaleMeters == pytest.approx(first.scaleMeters * 4.2, rel=1e-12)
 
 
+def test_default_descriptor_is_128_dimensional():
+    descriptor = extractGeometryDescriptor(
+        _boxCase('box', (1.0, 2.0, 3.0), 'housing')
+    )
+
+    assert descriptor.values.shape == (128,)
+    assert len(descriptor.featureNames) == 128
+
+
+def test_descriptor_encodes_disconnected_surface_components():
+    first = _boxCase('first', (1.0, 1.0, 1.0), 'magnets')
+    second = _boxCase('second', (1.0, 1.0, 1.0), 'magnets')
+    nodeOffset = first.nodesMeters.shape[0]
+    combined = geometryRecognitionCase(
+        sourceId='combined',
+        geometryId='combined',
+        meshUuid='combined',
+        componentType='magnets',
+        componentInstance='magnets',
+        nodesMeters=np.concatenate(
+            (first.nodesMeters - [2.0, 0.0, 0.0], second.nodesMeters + [2.0, 0.0, 0.0])
+        ),
+        surfaceTriangles=np.concatenate(
+            (first.surfaceTriangles, second.surfaceTriangles + nodeOffset)
+        ),
+        volumeCoordinatesMeters=np.array([[-2.0, 0.0, 0.0], [2.0, 0.0, 0.0]]),
+        volumeWeightsM3=np.array([1.0, 1.0]),
+    )
+
+    descriptor = extractGeometryDescriptor(combined, _smallConfig())
+
+    assert descriptor.surfaceComponentCount == 2
+    componentCountIndex = descriptor.featureNames.index('surface_component_0')
+    assert descriptor.values[componentCountIndex] == pytest.approx(np.log1p(2))
+
+
 def test_descriptor_is_invariant_to_node_and_triangle_numbering():
     case = _boxCase('box', (1.0, 2.0, 3.0), 'housing')
     permutation = np.array([6, 2, 0, 7, 3, 5, 1, 4])
@@ -202,6 +238,64 @@ def test_dataset_rejects_conflicting_labels_for_one_mesh(tmp_path):
         json.dumps({'connectivityStored': True, 'cases': entries}), encoding='utf-8'
     )
     with pytest.raises(ValueError, match='conflicting component types'):
+        loadGeometryRecognitionDatasetRecords(tmp_path)
+
+
+def test_dataset_uses_component_type_as_declared_classification_target(tmp_path):
+    caseRoot = tmp_path / 'case'
+    caseRoot.mkdir()
+    np.savez_compressed(
+        caseRoot / 'data.npz',
+        nodesMeters=np.zeros((3, 3)),
+        surfaceTriangles=np.array([[0, 1, 2]]),
+    )
+    entry = {
+        'caseId': 'case',
+        'geometryId': 'shaft-mesh',
+        'meshUuid': 'mesh',
+        'componentType': 'shaft',
+        'path': 'case',
+    }
+    (tmp_path / 'dataset.json').write_text(
+        json.dumps(
+            {
+                'connectivityStored': True,
+                'tasks': {
+                    'geometryComponentClassification': {
+                        'taskType': 'multiclassClassification',
+                        'targetField': 'componentType',
+                        'classes': ['shaft'],
+                    }
+                },
+                'cases': [entry],
+            }
+        ),
+        encoding='utf-8',
+    )
+
+    records = loadGeometryRecognitionDatasetRecords(tmp_path)
+
+    assert records[0].componentType == 'shaft'
+
+
+def test_dataset_rejects_wrong_declared_classification_target(tmp_path):
+    (tmp_path / 'dataset.json').write_text(
+        json.dumps(
+            {
+                'connectivityStored': True,
+                'tasks': {
+                    'geometryComponentClassification': {
+                        'targetField': 'componentInstance',
+                        'classes': ['shaft'],
+                    }
+                },
+                'cases': [{'caseId': 'case'}],
+            }
+        ),
+        encoding='utf-8',
+    )
+
+    with pytest.raises(ValueError, match='targetField must be componentType'):
         loadGeometryRecognitionDatasetRecords(tmp_path)
 
 
