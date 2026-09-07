@@ -15,6 +15,10 @@ class torchBackend(backendBase):
             return torch.linalg.solve(A, b)
 
         @staticmethod
+        def lstsq(A, b):
+            return torch.linalg.lstsq(A, b).solution
+
+        @staticmethod
         def solveTriangular(A, b, lower=False):
             return torch.linalg.solve_triangular(A, b, upper=not lower)
 
@@ -162,8 +166,14 @@ class torchBackend(backendBase):
         @staticmethod
         def svdDense(A, fullMatrices=False):
             origDtype = A.dtype
-            U, S, Vh = torch.linalg.svd(A.to(torch.float64), full_matrices=fullMatrices)
-            return U.to(origDtype), S.to(origDtype), Vh.to(origDtype)
+            if A.is_complex():
+                workDtype = torch.complex128
+                singularDtype = torch.float32 if origDtype == torch.complex64 else torch.float64
+            else:
+                workDtype = torch.float64
+                singularDtype = origDtype
+            U, S, Vh = torch.linalg.svd(A.to(workDtype), full_matrices=fullMatrices)
+            return U.to(origDtype), S.to(singularDtype), Vh.to(origDtype)
 
         @staticmethod
         def svdSparse(A, k, which='LM'):
@@ -179,6 +189,10 @@ class torchBackend(backendBase):
             return a.conj()
 
     class eigen(backendBase.eigen):
+        @staticmethod
+        def eig(A):
+            return torch.linalg.eig(A)
+
         @staticmethod
         def eigvalsGeneralized(A, B):
             return torch.linalg.eigvals(torch.linalg.solve(B, A))
@@ -286,6 +300,10 @@ class torchBackend(backendBase):
         def isSparse(data):
             if not isinstance(data, torch.Tensor): return False
             return data.is_sparse
+
+        @staticmethod
+        def iscomplexobj(data):
+            return torch.is_complex(data) if isinstance(data, torch.Tensor) else np.iscomplexobj(data)
 
         @staticmethod
         def eyeSparse(n, dtype=None):

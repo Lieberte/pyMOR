@@ -11,6 +11,11 @@ class backendBase(ABC):
 
         @staticmethod
         @abstractmethod
+        def lstsq(A: Any, b: Any) -> Any:
+            pass
+
+        @staticmethod
+        @abstractmethod
         def solveTriangular(A: Any, b: Any, lower: bool = False) -> Any:
             pass
 
@@ -84,6 +89,11 @@ class backendBase(ABC):
             return Q
 
     class eigen:
+        @staticmethod
+        @abstractmethod
+        def eig(A: Any) -> Tuple[Any, Any]:
+            pass
+
         @staticmethod
         @abstractmethod
         def eigvalsGeneralized(A: Any, B: Any) -> Any:

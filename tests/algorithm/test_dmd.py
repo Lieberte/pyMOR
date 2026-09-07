@@ -157,3 +157,49 @@ def test_exact_dmd_rejects_mismatched_pairs():
             matrixOperator(np.ones((2, 3)), 'scipy'),
             matrixOperator(np.ones((2, 2)), 'scipy'),
         )
+
+
+def test_exact_dmd_accepts_composed_snapshot_operator():
+    dynamics = np.diag([0.8, 0.95])
+    snapshots = trajectory(dynamics, np.array([1.0, 2.0]), 7)
+    base = matrixOperator(snapshots, 'scipy')
+
+    result = exactDMD('scipy').fit(base + 0.0 * base)
+
+    np.testing.assert_allclose(result.reconstruct(), snapshots, atol=1e-11)
+
+
+def test_exact_dmd_torch_preserves_device_and_complex_dtype():
+    torch = pytest.importorskip('torch')
+    angle = 0.2
+    dynamics = torch.tensor(
+        [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]],
+        dtype=torch.float64,
+    )
+    states = [torch.tensor([1.0, 0.3], dtype=torch.float64)]
+    for _ in range(7):
+        states.append(dynamics @ states[-1])
+    snapshots = torch.stack(states, dim=1)
+
+    result = exactDMD('torch').fit(matrixOperator(snapshots, 'torch'))
+    reconstructed = result.reconstruct()
+
+    assert result.modes.toBackendData().device == snapshots.device
+    assert result.eigenvalues.device == snapshots.device
+    assert result.eigenvalues.dtype == torch.complex128
+    assert reconstructed.device == snapshots.device
+    assert reconstructed.dtype == snapshots.dtype
+    torch.testing.assert_close(reconstructed, snapshots)
+
+
+def test_torch_svd_preserves_complex_snapshot_information():
+    torch = pytest.importorskip('torch')
+    snapshots = torch.tensor(
+        [[1.0 + 0.2j, 0.8 + 0.1j, 0.6 - 0.1j], [0.3j, 0.2 + 0.4j, -0.1 + 0.2j]],
+        dtype=torch.complex128,
+    )
+
+    result = exactDMD('torch').fit(matrixOperator(snapshots, 'torch'))
+
+    assert result.modes.toBackendData().dtype == torch.complex128
+    assert result.singularValues.dtype == torch.float64

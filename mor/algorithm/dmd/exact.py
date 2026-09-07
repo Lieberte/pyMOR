@@ -1,7 +1,6 @@
 from typing import Any
 
 import numpy as np
-from scipy import linalg
 
 from mor.algorithm.decompose.truncation.truncation import truncate
 from mor.algorithm.registry import registerAlgorithm
@@ -24,17 +23,15 @@ class exactDMD(dmd):
         amplitudeMethod: str = 'first',
         **kwargs,
     ) -> dmdResult:
-        if self.localBackend.name != 'scipy':
-            raise NotImplementedError("Exact DMD initially supports only the scipy backend.")
+        backend = self.localBackend
         xData, yData, trainingSteps, inputWasReal = self._pairedData(snapshots, shiftedSnapshots, dt)
-        xData = self.localBackend.array.toNumpy(xData)
-        yData = self.localBackend.array.toNumpy(yData)
-        U, singularValues, Vh = linalg.svd(xData, full_matrices=False)
-        requestedRank = truncate(singularValues, rank=rank, tol=tol, backend=self.localBackend)
+        U, singularValues, Vh = backend.decomposition.svdDense(xData, fullMatrices=False)
+        requestedRank = truncate(singularValues, rank=rank, tol=tol, backend=backend)
         if requestedRank == 0:
             raise ValueError("DMD requires a positive numerical snapshot rank.")
-        numericalTolerance = self._numericalTolerance(singularValues, xData.shape)
-        numericalRank = int(np.count_nonzero(singularValues > numericalTolerance))
+        singularValuesNumpy = backend.array.toNumpy(singularValues)
+        numericalTolerance = self._numericalTolerance(singularValuesNumpy, xData.shape)
+        numericalRank = int(np.count_nonzero(singularValuesNumpy > numericalTolerance))
         effectiveRank = min(requestedRank, numericalRank)
         if effectiveRank == 0:
             raise ValueError("DMD requires a positive numerical snapshot rank.")
@@ -45,16 +42,27 @@ class exactDMD(dmd):
         U = U[:, :effectiveRank]
         selectedSingularValues = singularValues[:effectiveRank]
         Vh = Vh[:effectiveRank, :]
-        projectedY = yData @ Vh.conj().T / selectedSingularValues[None, :]
-        reducedOperator = U.conj().T @ projectedY
-        eigenvalues, eigenvectors = linalg.eig(reducedOperator)
-        modes = projectedY @ eigenvectors if mode == 'exact' else U @ eigenvectors
-        amplitudes = self._fitAmplitudes(modes, eigenvalues, xData, amplitudeMethod)
+        v = backend.linalg.transpose(backend.linalg.conj(Vh))
+        projectedY = backend.linalg.dot(yData, v) / selectedSingularValues[None, :]
+        uAdjoint = backend.linalg.transpose(backend.linalg.conj(U))
+        reducedOperator = backend.linalg.dot(uAdjoint, projectedY)
+        eigenvalues, eigenvectors = backend.eigen.eig(reducedOperator)
+        if backend.name == 'torch':
+            projectedY = projectedY.to(eigenvectors.dtype)
+            U = U.to(eigenvectors.dtype)
+        modes = (
+            backend.linalg.dot(projectedY, eigenvectors)
+            if mode == 'exact'
+            else backend.linalg.dot(U, eigenvectors)
+        )
+        amplitudes = self._fitAmplitudes(
+            modes, eigenvalues, xData, amplitudeMethod, backend
+        )
         result = dmdResult(
-            modes=matrixOperator(modes, backendName='scipy'),
+            modes=matrixOperator(modes, backendName=backend.name),
             eigenvalues=eigenvalues,
             amplitudes=amplitudes,
-            reducedOperator=matrixOperator(reducedOperator, backendName='scipy'),
+            reducedOperator=matrixOperator(reducedOperator, backendName=backend.name),
             singularValues=selectedSingularValues,
             rank=effectiveRank,
             dt=dt,
@@ -65,7 +73,9 @@ class exactDMD(dmd):
                 'requestedRank': requestedRank,
                 'numericalRank': numericalRank,
                 'numericalTolerance': numericalTolerance,
-                'conditionNumber': float(selectedSingularValues[0] / selectedSingularValues[-1]),
+                'conditionNumber': float(
+                    singularValuesNumpy[0] / singularValuesNumpy[effectiveRank - 1]
+                ),
             },
             trainingSteps=trainingSteps,
             inputWasReal=inputWasReal,
@@ -82,47 +92,56 @@ class exactDMD(dmd):
 
     @staticmethod
     def _fitAmplitudes(
-        modes: np.ndarray,
-        eigenvalues: np.ndarray,
-        xData: np.ndarray,
+        modes: Any,
+        eigenvalues: Any,
+        xData: Any,
         amplitudeMethod: str,
-    ) -> np.ndarray:
+        backend: Any,
+    ) -> Any:
+        if backend.name == 'torch' and xData.dtype != modes.dtype:
+            xData = xData.to(modes.dtype)
         if amplitudeMethod == 'first':
-            return linalg.lstsq(modes, xData[:, 0])[0]
-        powers = np.arange(xData.shape[1])
+            return backend.linalg.lstsq(modes, xData[:, 0])
+        powers = backend.array.array(list(range(xData.shape[1])))
         dynamics = eigenvalues[:, None] ** powers[None, :]
-        design = np.column_stack([
-            (modes[:, index, None] * dynamics[index, None, :]).reshape(-1)
+        design = backend.array.hstack([
+            backend.array.reshape(
+                modes[:, index, None] * dynamics[index, None, :], (-1, 1)
+            )
             for index in range(modes.shape[1])
         ])
-        return linalg.lstsq(design, xData.reshape(-1))[0]
+        return backend.linalg.lstsq(design, backend.array.reshape(xData, (-1,)))
 
     @staticmethod
     def _relativeNorm(residual: np.ndarray, reference: np.ndarray) -> float:
-        denominator = linalg.norm(reference)
-        return 0.0 if denominator == 0 else float(linalg.norm(residual) / denominator)
+        denominator = np.linalg.norm(reference)
+        return 0.0 if denominator == 0 else float(np.linalg.norm(residual) / denominator)
 
     def _diagnostics(
         self,
         result: dmdResult,
-        xData: np.ndarray,
-        yData: np.ndarray,
-        basis: np.ndarray,
+        xData: Any,
+        yData: Any,
+        basis: Any,
     ) -> dict[str, float]:
-        projectedSnapshots = basis @ (basis.conj().T @ xData)
-        modalInverse = linalg.pinv(result.modes.toNumpy())
+        backend = result.modes.localBackend
+        xNumpy = backend.array.toNumpy(xData)
+        yNumpy = backend.array.toNumpy(yData)
+        basisNumpy = backend.array.toNumpy(basis)
+        projectedSnapshots = basisNumpy @ (basisNumpy.conj().T @ xNumpy)
+        modalInverse = np.linalg.pinv(result.modes.toNumpy())
         fittedOperator = (
             result.modes.toNumpy()
-            @ np.diag(result.eigenvalues)
+            @ np.diag(backend.array.toNumpy(result.eigenvalues))
             @ modalInverse
         )
         diagnostics = {
-            'snapshotResidual': self._relativeNorm(xData - projectedSnapshots, xData),
-            'oneStepResidual': self._relativeNorm(yData - fittedOperator @ xData, yData),
+            'snapshotResidual': self._relativeNorm(xNumpy - projectedSnapshots, xNumpy),
+            'oneStepResidual': self._relativeNorm(yNumpy - fittedOperator @ xNumpy, yNumpy),
         }
         if result.trainingSteps is not None:
-            reconstructed = result.reconstruct(realOutput=False)
-            fullSnapshots = np.column_stack([xData, yData[:, -1]])
+            reconstructed = backend.array.toNumpy(result.reconstruct(realOutput=False))
+            fullSnapshots = np.column_stack([xNumpy, yNumpy[:, -1]])
             diagnostics['reconstructionError'] = self._relativeNorm(
                 fullSnapshots - reconstructed, fullSnapshots
             )

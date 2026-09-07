@@ -13,6 +13,10 @@ class scipyBackend(backendBase):
             return spsolve(A, b) if issparse(A) else linalg.solve(A, b)
 
         @staticmethod
+        def lstsq(A, b):
+            return linalg.lstsq(A, b)[0]
+
+        @staticmethod
         def solveTriangular(A, b, lower=False):
             return linalg.solve_triangular(A, b, lower=lower)
 
@@ -160,6 +164,10 @@ class scipyBackend(backendBase):
             return B / linalg.norm(B) if B.shape[1] == 1 else linalg.qr(B, mode='economic')[0]
 
     class eigen(backendBase.eigen):
+        @staticmethod
+        def eig(A):
+            return linalg.eig(A)
+
         @staticmethod
         def eigvalsGeneralized(A, B):
             return linalg.eigvals(A, B)
