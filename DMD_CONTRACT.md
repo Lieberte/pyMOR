@@ -18,3 +18,10 @@ excluded before inversion. A zero numerical rank is rejected.
 autonomous snapshot dynamics and exposes modes, eigenvalues, amplitudes, the
 reduced operator, singular values, rank, diagnostics, reconstruction, and
 prediction.
+
+The explicit POD-DMD pipeline uses separate `podRank` and `dmdRank` controls.
+It projects snapshots with `V* x`, or `V* M x` for weighted POD, fits DMD in
+the POD coordinates, and lifts modes and predictions back with `V`. Centered
+POD-DMD adds the stored snapshot mean after lifting. Explicit `(X, Y)` pairs
+fit their shared POD basis on `[X, Y]`. Controlled POD-DMD is not part of this
+contract; it requires a dedicated POD-DMDc simulation result.

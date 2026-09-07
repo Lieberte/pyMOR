@@ -33,6 +33,13 @@ snapshots = mor.matrixOperator(
 dynamics = mor.dmdReductor("scipy").reduce(snapshots)
 future = dynamics.predict(steps=5)
 
+pod_dynamics = mor.podDmdReductor("scipy", centerSnapshots=True).reduce(
+    snapshots,
+    podRank=2,
+    dmdRank=2,
+)
+future_from_pod = pod_dynamics.predict(steps=5)
+
 import mor.nn
 ```
 

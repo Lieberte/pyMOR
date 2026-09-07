@@ -21,7 +21,7 @@ from .operators import (
     sumOperator,
 )
 from .reductors.registry import reductorRegistry, registerReductor
-from .reductors import dmdReductor
+from .reductors import dmdReductor, podDmdReductor, podDmdResult
 from .solvers.registry import registerLyapunovSolver, solverRegistry
 
 __all__ = [
@@ -43,6 +43,8 @@ __all__ = [
     "reductorRegistry",
     "registerReductor",
     "dmdReductor",
+    "podDmdReductor",
+    "podDmdResult",
     "operatorBase",
     "matrixOperator",
     "lowRankOperator",

@@ -11,3 +11,5 @@ def test_top_level_public_api_imports_classical_core():
     assert mor.exactDMD.__name__ == "exactDMD"
     assert mor.dmdResult.__name__ == "dmdResult"
     assert mor.dmdReductor.__name__ == "dmdReductor"
+    assert mor.podDmdReductor.__name__ == "podDmdReductor"
+    assert mor.podDmdResult.__name__ == "podDmdResult"

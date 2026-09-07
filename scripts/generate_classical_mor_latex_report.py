@@ -139,6 +139,14 @@ def dmd_summary() -> list[str]:
     return lines
 
 
+def pod_dmd_summary() -> list[str]:
+    rows = read_csv(ROOT / "reports" / "pod_dmd" / "pod_dmd_results.csv")
+    return [
+        rf"{latex_escape(row['case'])} & {row['pod_rank']} & {row['dmd_rank']} & {number(row['coordinate_reduction_ratio']):.3e} & {number(row['pod_projection_error']):.3e} & {number(row['full_reconstruction_error']):.3e} \\"
+        for row in rows
+    ]
+
+
 def table(headers: list[str], rows: list[str]) -> str:
     columns = "p{0.27\\linewidth}" + "p{0.11\\linewidth}" * (len(headers) - 1)
     header = " & ".join(latex_escape(item) for item in headers) + r" \\"
@@ -159,6 +167,7 @@ def main() -> int:
     lradi_payload = read_json(ROOT / "reports" / "lradi" / "lradi_results.json")
     lrsmith_payload = read_json(ROOT / "reports" / "lrsmith" / "lrsmith_results.json")
     dmd_payload = read_json(ROOT / "reports" / "dmd" / "dmd_results.json")
+    pod_dmd_payload = read_json(ROOT / "reports" / "pod_dmd" / "pod_dmd_results.json")
     text = rf"""\documentclass[UTF8]{{ctexart}}
 \usepackage{{geometry}}
 \usepackage{{longtable}}
@@ -167,7 +176,7 @@ def main() -> int:
 \geometry{{a4paper, margin=2.2cm}}
 \title{{Classical MOR 分层测试与自动分发报告}}
 \author{{pyMOR classical optimization}}
-\date{{SVD: {latex_escape(svd_payload['generated_at'])}\\LRADI: {latex_escape(lradi_payload['generated_at'])}\\LRSmith: {latex_escape(lrsmith_payload['generated_at'])}\\DMD: {latex_escape(dmd_payload['generated_at'])}}}
+\date{{SVD: {latex_escape(svd_payload['generated_at'])}\\LRADI: {latex_escape(lradi_payload['generated_at'])}\\LRSmith: {latex_escape(lrsmith_payload['generated_at'])}\\DMD: {latex_escape(dmd_payload['generated_at'])}\\POD-DMD: {latex_escape(pod_dmd_payload['generated_at'])}}}
 
 \begin{{document}}
 \maketitle
@@ -190,6 +199,9 @@ def main() -> int:
 
 \subsection{{DMD 谱与轨迹误差}}
 {table(['case', 'variant', 'rank', 'eigenvalue error', 'reconstruction error', 'elapsed ms'], dmd_summary())}
+
+\subsection{{POD-DMD 分层误差}}
+{table(['case', 'POD rank', 'DMD rank', 'coordinate ratio', 'POD error', 'full error'], pod_dmd_summary())}
 
 \section{{Operator Layer：operator 兼容性}}
 operator 兼容性由 regression tests 和各算法报告共同覆盖：dense matrixOperator、scipy sparse matrixOperator、lowRankOperator、scaledOperator、sumOperator、descriptor/generalized pair。详细明细保留在各算法的 case manifest 与 CSV 中。

@@ -97,7 +97,15 @@ class dmdResult:
             return values
         imaginaryNorm = np.linalg.norm(values.imag)
         scale = max(np.linalg.norm(values.real), 1.0)
-        if imaginaryNorm > 1e-10 * scale:
+        realDtype = values.real.dtype
+        if self.modes.backendName == 'torch':
+            import torch
+
+            modeDtype = self.modes.toBackendData().dtype
+            if modeDtype in {torch.float32, torch.complex64}:
+                realDtype = np.dtype(np.float32)
+        tolerance = max(1e-10, 100 * np.finfo(realDtype).eps)
+        if imaginaryNorm > tolerance * scale:
             raise ValueError("Prediction has a significant imaginary component.")
         return values.real
 
