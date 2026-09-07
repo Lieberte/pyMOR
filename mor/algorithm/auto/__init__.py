@@ -2,11 +2,13 @@ from typing import Dict, Callable
 from mor.algorithm.auto.svd import selectSVDVariant
 from mor.algorithm.auto.lyapunov import selectLyapunovAlgorithm
 from mor.algorithm.auto.linear import selectLinearAlgorithm
+from mor.algorithm.auto.dmd import selectDMDVariant
 
 _autoDispatchers: Dict[str, Callable] = {
     'svd': selectSVDVariant,
     'lyapunov': selectLyapunovAlgorithm,
-    'linear': selectLinearAlgorithm
+    'linear': selectLinearAlgorithm,
+    'dmd': selectDMDVariant,
 }
 
 def selectAlgorithm(category: str, **kwargs) -> str:

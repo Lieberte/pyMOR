@@ -16,7 +16,7 @@ class dmdReductor:
         shiftedSnapshots: operatorBase | None = None,
         rank: int | None = None,
         tol: float | None = None,
-        method: str = 'exact',
+        method: str = 'auto',
         dt: float | None = None,
         **kwargs,
     ):
@@ -30,7 +30,7 @@ class dmdReductor:
             rank=rank,
             **kwargs,
         )
-        return algorithm.fit(
+        result = algorithm.fit(
             snapshots,
             shiftedSnapshots=shiftedSnapshots,
             rank=rank,
@@ -38,6 +38,8 @@ class dmdReductor:
             dt=dt,
             **kwargs,
         )
+        result.diagnostics['requestedMethod'] = method
+        return result
 
 
 DMDReductor = dmdReductor
