@@ -107,7 +107,15 @@ class dmdResult:
         reference = self.modes.toBackendData()
         import torch
 
-        return torch.as_tensor(values, device=reference.device)
+        if np.iscomplexobj(values):
+            dtype = reference.dtype
+        elif reference.dtype == torch.complex64:
+            dtype = torch.float32
+        elif reference.dtype == torch.complex128:
+            dtype = torch.float64
+        else:
+            dtype = reference.dtype
+        return torch.as_tensor(values, device=reference.device, dtype=dtype)
 
 
 class dmd(ABC):

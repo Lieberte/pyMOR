@@ -208,3 +208,15 @@ def test_torch_svd_preserves_complex_snapshot_information():
 
     assert result.modes.toBackendData().dtype == torch.complex128
     assert result.singularValues.dtype == torch.float64
+
+
+def test_exact_dmd_torch_float32_reconstruction_preserves_dtype():
+    torch = pytest.importorskip('torch')
+    snapshots = torch.tensor([[1.0, 0.9, 0.81, 0.729]], dtype=torch.float32)
+
+    result = exactDMD('torch').fit(matrixOperator(snapshots, 'torch'))
+    reconstructed = result.reconstruct()
+
+    assert reconstructed.dtype == torch.float32
+    assert reconstructed.device == snapshots.device
+    torch.testing.assert_close(reconstructed, snapshots)

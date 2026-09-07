@@ -59,6 +59,11 @@ class tlsDMD(exactDMD):
                 stacked - stacked @ projection, stacked
             ),
         })
+        modes = result.modes.toNumpy()
+        fittedOperator = modes @ np.diag(result.eigenvalues) @ np.linalg.pinv(modes)
+        result.diagnostics['oneStepResidual'] = self._relativeNorm(
+            yData - fittedOperator @ xData, yData
+        )
         if trainingSteps is not None:
             fullSnapshots = np.column_stack([xData, yData[:, -1]])
             result.diagnostics['reconstructionError'] = self._relativeNorm(

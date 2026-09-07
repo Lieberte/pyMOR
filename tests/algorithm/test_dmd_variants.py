@@ -30,6 +30,7 @@ def test_tls_dmd_runs_on_noisy_snapshots():
     assert result.diagnostics['variant'] == 'tls'
     assert result.diagnostics['tlsProjectionResidual'] >= 0
     assert result.reconstruct().shape == snapshots.shape
+    assert result.diagnostics['oneStepResidual'] > 0
 
 
 def test_forward_backward_dmd_recovers_exact_spectrum():

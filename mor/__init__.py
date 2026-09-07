@@ -10,6 +10,7 @@ __version__ = "0.1.0"
 
 from . import algorithm, backends, models, operators, reductors, solvers
 from .algorithm.registry import algorithmRegistry, registerAlgorithm
+from .algorithm.dmd import dmdResult, exactDMD
 from .backends.registry import backendRegistry, registerBackend
 from .models import ltiModel, modelBase
 from .operators import (
@@ -20,6 +21,7 @@ from .operators import (
     sumOperator,
 )
 from .reductors.registry import reductorRegistry, registerReductor
+from .reductors import dmdReductor
 from .solvers.registry import registerLyapunovSolver, solverRegistry
 
 __all__ = [
@@ -32,12 +34,15 @@ __all__ = [
     "solvers",
     "algorithmRegistry",
     "registerAlgorithm",
+    "exactDMD",
+    "dmdResult",
     "backendRegistry",
     "registerBackend",
     "solverRegistry",
     "registerLyapunovSolver",
     "reductorRegistry",
     "registerReductor",
+    "dmdReductor",
     "operatorBase",
     "matrixOperator",
     "lowRankOperator",

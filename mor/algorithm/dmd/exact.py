@@ -103,7 +103,12 @@ class exactDMD(dmd):
             xData = xData.to(modes.dtype)
         if amplitudeMethod == 'first':
             return backend.linalg.lstsq(modes, xData[:, 0])
-        powers = backend.array.array(list(range(xData.shape[1])))
+        if backend.name == 'torch':
+            import torch
+
+            powers = torch.arange(xData.shape[1], device=eigenvalues.device)
+        else:
+            powers = backend.array.array(list(range(xData.shape[1])))
         dynamics = eigenvalues[:, None] ** powers[None, :]
         design = backend.array.hstack([
             backend.array.reshape(

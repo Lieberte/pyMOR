@@ -8,3 +8,6 @@ def test_top_level_public_api_imports_classical_core():
     assert mor.solverRegistry is not None
     assert mor.reductorRegistry is not None
     assert mor.matrixOperator.__name__ == "matrixOperator"
+    assert mor.exactDMD.__name__ == "exactDMD"
+    assert mor.dmdResult.__name__ == "dmdResult"
+    assert mor.dmdReductor.__name__ == "dmdReductor"

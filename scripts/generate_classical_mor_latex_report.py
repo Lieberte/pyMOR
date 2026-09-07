@@ -129,6 +129,16 @@ def dense_lyapunov_summary() -> list[str]:
     return lines
 
 
+def dmd_summary() -> list[str]:
+    rows = read_csv(ROOT / "reports" / "dmd" / "dmd_results.csv")
+    lines = []
+    for row in rows:
+        lines.append(
+            rf"{latex_escape(row['case'])} & {latex_escape(row['variant'])} & {row['rank']} & {number(row['eigenvalue_error']):.3e} & {number(row['reconstruction_error']):.3e} & {number(row['elapsed_ms']):.3f} \\"
+        )
+    return lines
+
+
 def table(headers: list[str], rows: list[str]) -> str:
     columns = "p{0.27\\linewidth}" + "p{0.11\\linewidth}" * (len(headers) - 1)
     header = " & ".join(latex_escape(item) for item in headers) + r" \\"
@@ -148,6 +158,7 @@ def main() -> int:
     svd_payload = read_json(ROOT / "reports" / "svd" / "svd_results.json")
     lradi_payload = read_json(ROOT / "reports" / "lradi" / "lradi_results.json")
     lrsmith_payload = read_json(ROOT / "reports" / "lrsmith" / "lrsmith_results.json")
+    dmd_payload = read_json(ROOT / "reports" / "dmd" / "dmd_results.json")
     text = rf"""\documentclass[UTF8]{{ctexart}}
 \usepackage{{geometry}}
 \usepackage{{longtable}}
@@ -156,7 +167,7 @@ def main() -> int:
 \geometry{{a4paper, margin=2.2cm}}
 \title{{Classical MOR 分层测试与自动分发报告}}
 \author{{pyMOR classical optimization}}
-\date{{SVD: {latex_escape(svd_payload['generated_at'])}\\LRADI: {latex_escape(lradi_payload['generated_at'])}\\LRSmith: {latex_escape(lrsmith_payload['generated_at'])}}}
+\date{{SVD: {latex_escape(svd_payload['generated_at'])}\\LRADI: {latex_escape(lradi_payload['generated_at'])}\\LRSmith: {latex_escape(lrsmith_payload['generated_at'])}\\DMD: {latex_escape(dmd_payload['generated_at'])}}}
 
 \begin{{document}}
 \maketitle
@@ -176,6 +187,9 @@ def main() -> int:
 
 \subsection{{LRSmith 策略表现}}
 {table(['family', 'cases', 'failures', 'max residual', 'max rank', 'recommendations'], strategy_summary(ROOT / 'reports' / 'lrsmith' / 'lrsmith_strategy_analysis.csv'))}
+
+\subsection{{DMD 谱与轨迹误差}}
+{table(['case', 'variant', 'rank', 'eigenvalue error', 'reconstruction error', 'elapsed ms'], dmd_summary())}
 
 \section{{Operator Layer：operator 兼容性}}
 operator 兼容性由 regression tests 和各算法报告共同覆盖：dense matrixOperator、scipy sparse matrixOperator、lowRankOperator、scaledOperator、sumOperator、descriptor/generalized pair。详细明细保留在各算法的 case manifest 与 CSV 中。
