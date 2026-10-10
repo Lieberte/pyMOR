@@ -10,10 +10,14 @@ import shutil
 from zipfile import ZipFile
 
 from mor.nn.data.motorFemComponentCase import (
-    _h5py,
-    _normalizedComponentName,
-    _resolveFemSystem,
     buildMotorFemComponentCase,
+)
+from mor.nn.data.motorFemMetadata import (
+    normalizedComponentName,
+    resolveFemSystem,
+)
+from mor.nn.data.motorFemIO import (
+    loadH5py,
 )
 from mor.nn.data.motorFullResolutionDataset import (
     FULL_DATASET_FORMAT_VERSION,
@@ -281,13 +285,13 @@ def _caseTargets(root: Path, motorId: str, parentCaseId: str, components: tuple[
 
 def _solvedComponents(extractedRoot: Path, info) -> tuple[tuple[str, ...], tuple[str, ...]]:
     control = _loadJson(extractedRoot / 'controlData.json')
-    femSystemUuid, femSystem, femSchema = _resolveFemSystem(control)
+    femSystemUuid, femSystem, femSchema = resolveFemSystem(control)
     solved = []
     skipped = []
-    h5py = _h5py()
+    h5py = loadH5py()
     with h5py.File(extractedRoot / info.resultMember, 'r') as result:
         for regionUuid, region in femSystem.get('femRegions', {}).items():
-            name = _normalizedComponentName(region.get('name', ''))
+            name = normalizedComponentName(region.get('name', ''))
             if femSchema == 'nestedFem3DThermal':
                 base = (
                     f'thermalComponents/thermal3dFem/{femSystemUuid}/'

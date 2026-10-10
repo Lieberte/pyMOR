@@ -22,10 +22,7 @@ from report_run_utils import reset_report_dir, write_case_manifest
 from report_svg_utils import write_bar_chart_svg, write_success_matrix_svg
 from standard_benchmark_cases import STANDARD_BENCHMARK_SOURCES, matlab_gallery_grcar, matrix_depot_poisson_1d
 
-try:
-    import torch
-except Exception:  # pragma: no cover - optional dependency
-    torch = None
+import torch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -145,10 +142,34 @@ def build_cases() -> list[DispatchCase]:
             should_raise=True,
         ),
     ]
-    if torch is not None:
+    cases.append(
+        DispatchCase(
+            name="dense_continuous_torch_cpu_diagonal_n20",
+            family="dense_continuous_torch",
+            backend="torch",
+            is_continuous=True,
+            A=-np.eye(20),
+            B=np.ones((20, 1)),
+            expected_variant="sign",
+            max_iter=40,
+        )
+    )
+    cases.append(
+        DispatchCase(
+            name="dense_discrete_torch_cpu_unsupported_n8",
+            family="dense_discrete_unsupported",
+            backend="torch",
+            is_continuous=False,
+            A=np.eye(8) * 0.2,
+            B=np.ones((8, 1)),
+            expected_variant=None,
+            should_raise=True,
+        )
+    )
+    if torch.cuda.is_available():
         cases.append(
             DispatchCase(
-                name="dense_continuous_torch_cpu_diagonal_n20",
+                name="dense_continuous_torch_cuda_diagonal_n20",
                 family="dense_continuous_torch",
                 backend="torch",
                 is_continuous=True,
@@ -160,7 +181,7 @@ def build_cases() -> list[DispatchCase]:
         )
         cases.append(
             DispatchCase(
-                name="dense_discrete_torch_cpu_unsupported_n8",
+                name="dense_discrete_torch_cuda_unsupported_n8",
                 family="dense_discrete_unsupported",
                 backend="torch",
                 is_continuous=False,
@@ -170,36 +191,11 @@ def build_cases() -> list[DispatchCase]:
                 should_raise=True,
             )
         )
-        if torch.cuda.is_available():
-            cases.append(
-                DispatchCase(
-                    name="dense_continuous_torch_cuda_diagonal_n20",
-                    family="dense_continuous_torch",
-                    backend="torch",
-                    is_continuous=True,
-                    A=-np.eye(20),
-                    B=np.ones((20, 1)),
-                    expected_variant="sign",
-                    max_iter=40,
-                )
-            )
-            cases.append(
-                DispatchCase(
-                    name="dense_discrete_torch_cuda_unsupported_n8",
-                    family="dense_discrete_unsupported",
-                    backend="torch",
-                    is_continuous=False,
-                    A=np.eye(8) * 0.2,
-                    B=np.ones((8, 1)),
-                    expected_variant=None,
-                    should_raise=True,
-                )
-            )
     return cases
 
 
 def to_numpy(data: Any) -> np.ndarray:
-    if torch is not None and isinstance(data, torch.Tensor):
+    if isinstance(data, torch.Tensor):
         return data.detach().cpu().numpy()
     if hasattr(data, "toarray"):
         return data.toarray()
@@ -418,8 +414,8 @@ def main() -> int:
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "numpy": np.__version__,
-            "torch_available": torch is not None,
-            "torch_version": getattr(torch, "__version__", None) if torch is not None else None,
+            "torch_available": True,
+            "torch_version": torch.__version__,
         },
         "cases": rows,
     }

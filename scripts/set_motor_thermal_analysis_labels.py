@@ -6,7 +6,9 @@ import argparse
 import json
 from pathlib import Path
 
-from mor.nn.data.motorFemComponentCase import _thermalAnalysisMetadata
+from mor.nn.data.motorFemMetadata import (
+    thermalAnalysisMetadata,
+)
 from mor.nn.data.motorStaDataset import _staTemporalMetadata, inspectMotorStaArchive
 
 
@@ -58,7 +60,7 @@ def _temporalMetadata(manifest: dict, cache: dict[str, dict]) -> dict:
     key = f'control:{controlDirectory.resolve()}'
     if key not in cache:
         control = _load(controlDirectory / 'controlData.json')
-        cache[key] = _thermalAnalysisMetadata(control)
+        cache[key] = thermalAnalysisMetadata(control)
     return cache[key]
 
 

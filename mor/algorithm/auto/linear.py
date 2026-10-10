@@ -1,3 +1,6 @@
 def selectLinearAlgorithm(**kwargs) -> str:
-    # TODO: implement heuristic for choosing between shifted, gmres, etc.
+    if kwargs.get('matrixFree', False):
+        if kwargs.get('backendName', 'scipy') != 'scipy':
+            raise NotImplementedError('Matrix-free linear auto requires the scipy backend')
+        return 'gmres'
     return 'shifted'

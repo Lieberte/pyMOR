@@ -5,7 +5,7 @@ class baseModel(ABC):
     def __init__(self, modelName: str = 'baseModel', **kwargs):
         self.modelName = modelName
         self.options = kwargs
-        self.deviceName = kwargs.get('deviceName', 'cpu')
+        self.deviceName = kwargs.get('deviceName', 'auto')
         self.trainingState = {
             'currentEpoch': 0,
             'currentStep': 0,

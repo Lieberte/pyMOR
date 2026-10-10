@@ -33,6 +33,54 @@ def test_lrsmith_scipy_executes_one_iteration_without_missing_array_max():
     np.testing.assert_allclose(z.left, B.toBackendData())
 
 
+def test_lrsmith_single_iteration_only_applies_operator_for_residual(monkeypatch):
+    A = matrixOperator(np.zeros((3, 3)), 'scipy')
+    B = matrixOperator(np.ones((3, 1)), 'scipy')
+    original = A.apply
+    calls = []
+    def apply(values, trans=False):
+        calls.append(values.shape)
+        return original(values, trans=trans)
+    monkeypatch.setattr(A, 'apply', apply)
+    smith = algorithmRegistry.get(category='lyapunov', variant='lrsmith', backendName='scipy',
+                                  maxIter=1, checkStability=False)
+    result = smith.solve(A, None, B)
+    assert calls == [(3, 1)]
+    np.testing.assert_allclose(result.toBackendData(), np.ones((3, 3)))
+
+
+@pytest.mark.parametrize('sparse', [False, True])
+@pytest.mark.parametrize('trans', [False, True])
+def test_descriptor_factor_is_reused_only_within_one_solve(sparse, trans, monkeypatch):
+    import scipy.linalg
+    import scipy.sparse.linalg
+    from scipy.sparse import csr_matrix
+    Adata = np.array([[0.3, 0.1], [0., 0.4]])
+    Edata = np.array([[1., 0.2], [0., 2.]])
+    Bdata = np.ones((2, 1))
+    A = matrixOperator(csr_matrix(Adata) if sparse else Adata, 'scipy')
+    B = matrixOperator(Bdata.T if trans else Bdata, 'scipy')
+    calls = []
+    module = scipy.sparse.linalg if sparse else scipy.linalg
+    name = 'splu' if sparse else 'lu_factor'
+    original = getattr(module, name)
+    def factor(*args, **kwargs):
+        calls.append(1)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(module, name, factor)
+    smith = algorithmRegistry.get(category='lyapunov', variant='lrsmith', backendName='scipy',
+                                  maxIter=80, tol=1e-12, checkStability=False)
+    for scale in [1., 2.]:
+        E = matrixOperator(csr_matrix(Edata * scale) if sparse else Edata * scale, 'scipy')
+        result = smith.solve(A, E, B, trans=trans).toBackendData()
+        descriptor = Edata.T * scale if trans else Edata * scale
+        effectiveA = np.linalg.solve(descriptor, Adata.T if trans else Adata)
+        effectiveB = np.linalg.solve(descriptor, Bdata)
+        reference = scipy.linalg.solve_discrete_lyapunov(effectiveA, effectiveB @ effectiveB.T)
+        np.testing.assert_allclose(result, reference, atol=1e-10)
+    assert len(calls) == 2
+
+
 def test_lrsmith_scipy_solves_stable_discrete_residual():
     A = matrixOperator(np.diag([0.2, 0.4, 0.6]), backendName='scipy')
     B = matrixOperator(np.ones((3, 1)), backendName='scipy')

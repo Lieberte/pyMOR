@@ -7,12 +7,14 @@ from pathlib import Path
 from typing import Sequence
 
 from .motorFemComponentCase import (
+    buildMotorFemComponentCase,
+    motorFemComponentNames,
+)
+from .motorFemBoundary import (
     CONVECTION_BOUNDARY_TYPE,
     FIXED_TEMPERATURE_BOUNDARY_TYPE,
     PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
-    buildMotorFemComponentCase,
-    motorFemComponentNames,
 )
 from .motorWholeDataset import saveWholeMotorDataset
 from .thermalComponentCase import saveThermalComponentDataset

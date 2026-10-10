@@ -5,35 +5,21 @@ from .operatorsBase import operatorBase
 class matrixOperator(operatorBase):
     def __init__(self, data: Any, backendName: str | None = None):
         super().__init__(backendName)
-        # TODO: check backend fmt first
         self.data = self.localBackend.array.toArray(data)
         self._isSparse = self._detectSparsity()
-        self._isDiagonal = self._detectDiagonal()
+        self._isDiagonal = None
+
+    @property
+    def isDiagonal(self) -> bool:
+        if self._isDiagonal is None:
+            self._isDiagonal = self._detectDiagonal()
+        return self._isDiagonal
 
     def _detectSparsity(self) -> bool:
         return self.localBackend.array.isSparse(self.data)
 
     def _detectDiagonal(self) -> bool:
-        shape = getattr(self.data, 'shape', ())
-        if len(shape) != 2 or shape[0] != shape[1]:
-            return False
-        if type(self.data).__module__.startswith('torch'):
-            return False
-        try:
-            from scipy.sparse import issparse
-            if issparse(self.data):
-                off_diagonal = self.data.copy()
-                off_diagonal.setdiag(0)
-                off_diagonal.eliminate_zeros()
-                return off_diagonal.nnz == 0
-        except Exception:
-            pass
-        try:
-            import numpy as np
-            array = self.localBackend.array.toNumpy(self.data)
-            return bool(np.allclose(array, np.diag(np.diag(array))))
-        except Exception:
-            return False
+        return self.localBackend.array.isDiagonal(self.data)
 
     @property
     def shape(self) -> Tuple[int, ...]:
@@ -51,7 +37,7 @@ class matrixOperator(operatorBase):
     def structureTags(self) -> frozenset[str]:
         tags = {'sparse'} if self.isSparse else {'dense'}
         tags.add('matrix')
-        if self._isDiagonal:
+        if self.isDiagonal:
             tags.add('diagonal')
         return frozenset(tags)
 
@@ -62,7 +48,7 @@ class matrixOperator(operatorBase):
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        xData = self._inputData(x)
+        xData = self._inputData(x, like=self.data)
         data = backend.linalg.transpose(self.data) if trans else self.data
         return backend.linalg.dot(data, xData)
 
@@ -72,12 +58,7 @@ class matrixOperator(operatorBase):
     def diagonal(self) -> Any:
         if not self.isDiagonal:
             raise ValueError("Operator is not diagonal")
-        if self.isSparse:
-            return self.data.diagonal()
-        if self.backendName == 'torch':
-            return self.data.diagonal()
-        import numpy as np
-        return np.diag(self.data)
+        return self.localBackend.array.diagonal(self.data)
 
     def __mul__(self, scalar: float) -> 'matrixOperator':
         if not isinstance(scalar, Number):

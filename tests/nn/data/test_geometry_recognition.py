@@ -155,6 +155,37 @@ def test_descriptor_is_invariant_to_node_and_triangle_numbering():
     np.testing.assert_allclose(first.values, second.values, atol=3e-2, rtol=3e-2)
 
 
+def test_recognition_survives_surface_mesh_refinement_and_scale():
+    from dataclasses import replace
+    coarse = _boxCase('shaft', (0.4, 0.7, 3.), 'shaft')
+    nodes = list(coarse.nodesMeters)
+    midpoints = {}
+    triangles = []
+    def midpoint(a, b):
+        key = tuple(sorted((int(a), int(b))))
+        if key not in midpoints:
+            midpoints[key] = len(nodes)
+            nodes.append((coarse.nodesMeters[a] + coarse.nodesMeters[b]) / 2)
+        return midpoints[key]
+    for a, b, c in coarse.surfaceTriangles:
+        ab, bc, ca = midpoint(a, b), midpoint(b, c), midpoint(c, a)
+        triangles.extend([(a, ab, ca), (ab, b, bc), (ca, bc, c), (ab, bc, ca)])
+    refined = replace(coarse, sourceId='refined', geometryId='refined', meshUuid='refined',
+                       nodesMeters=np.array(nodes) * 100,
+                       surfaceTriangles=np.array(triangles),
+                       volumeCoordinatesMeters=coarse.volumeCoordinatesMeters * 100,
+                       volumeWeightsM3=coarse.volumeWeightsM3 * 100**3)
+    # Refinement changes seeded triangle choices; compare distributions with ample samples.
+    config = replace(_smallConfig(), surfaceSampleCount=32768, pairSampleCount=32768)
+    first = extractGeometryDescriptor(coarse, config)
+    second = extractGeometryDescriptor(refined, config)
+    np.testing.assert_allclose(first.values, second.values, atol=3e-2, rtol=3e-2)
+    recognizer = geometryComponentRecognizer(config=_smallConfig(), minimumMargin=0.).fit(
+        [coarse, _boxCase('housing', (2., 1.8, 1.6), 'housing'),
+         _boxCase('plate', (3., 2.5, 0.3), 'magnetic_isolation_plate')])
+    assert recognizer.predict(refined).predictedType == 'shaft'
+
+
 def test_recognizer_fits_predicts_and_round_trips(tmp_path):
     cases = (
         _boxCase('shaft-a', (0.4, 0.5, 3.0), 'shaft'),

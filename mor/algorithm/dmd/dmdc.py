@@ -34,10 +34,16 @@ class dmdcResult(dmdResult):
             raise ValueError("initialState has an incompatible shape.")
         if controlData.ndim != 2 or controlData.shape[0] != reducedB.shape[1]:
             raise ValueError("controls must have shape (control_dimension, steps).")
+        if not np.all(np.isfinite(initial)) or not np.all(np.isfinite(controlData)):
+            raise ValueError('initialState and controls must contain only finite values')
+        if controlData.shape[1] == 0 and not includeInitial:
+            return self._fromNumpy(np.empty((basis.shape[0], 0), dtype=basis.dtype))
         state = basis.conj().T @ initial
         states = [basis @ state]
         for control in controlData.T:
             state = reducedA @ state + reducedB @ control
+            if not np.all(np.isfinite(state)):
+                raise ValueError('DMDc prediction overflowed; shorten the prediction horizon')
             states.append(basis @ state)
         output = np.column_stack(states if includeInitial else states[1:])
         output = self._realIfAppropriate(output, None)
@@ -55,6 +61,7 @@ class dmdc(exactDMD):
         stateRank: int | None = None,
         tol: float | None = None,
         dt: float | None = None,
+        requireIdentifiable: bool = False,
         **kwargs,
     ) -> dmdcResult:
         self._rejectTrainingTimes(kwargs)
@@ -79,6 +86,11 @@ class dmdc(exactDMD):
             somega > self._numericalTolerance(somega, omega.shape)
         ))
         inputRank = min(requestedRank, numericalRank)
+        identifiable = numericalRank == omega.shape[0]
+        if not isinstance(requireIdentifiable, bool):
+            raise ValueError('requireIdentifiable must be a boolean')
+        if requireIdentifiable and (not identifiable or inputRank < omega.shape[0]):
+            raise ValueError('DMDc state and control operators are not identifiable from the augmented snapshots')
         if inputRank == 0:
             raise ValueError("DMDc requires a positive numerical augmented snapshot rank.")
         Uomega = Uomega[:, :inputRank]
@@ -119,6 +131,11 @@ class dmdc(exactDMD):
                 'variant': 'dmdc',
                 'inputRank': inputRank,
                 'inputNumericalRank': numericalRank,
+                'identifiable': identifiable,
+                'retainedIdentifiable': identifiable and inputRank == omega.shape[0],
+                'controlRank': int(np.linalg.matrix_rank(controls)),
+                'augmentedDimension': omega.shape[0],
+                'retainedCondition': float(somega[0] / somega[-1]),
                 'stateRank': selectedStateRank,
                 'oneStepResidual': self._relativeNorm(yData - fittedY, yData),
             },

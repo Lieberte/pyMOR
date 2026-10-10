@@ -1,0 +1,59 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - python: '3.10'
+            os: ubuntu-latest
+            dependencies: core
+          - python: '3.12'
+            os: ubuntu-latest
+            dependencies: core
+          - python: '3.12'
+            os: ubuntu-latest
+            dependencies: full
+          - python: '3.13'
+            os: windows-latest
+            dependencies: core
+          - python: '3.12'
+            os: windows-latest
+            dependencies: full
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+      - name: Install classical test dependencies
+        if: matrix.dependencies == 'core'
+        run: python -m pip install -e '.[dev]'
+      - name: Install training and deployment dependencies
+        if: matrix.dependencies == 'full'
+        run: python -m pip install -e '.[dev,deployment]'
+      - name: Verify backend discovery remains lazy
+        if: matrix.dependencies == 'core'
+        run: |
+          python -c "import sys, mor; assert set(mor.backendRegistry.list()) == {'scipy', 'torch'}; assert 'torch' not in sys.modules"
+      - name: Require deployment dependencies
+        if: matrix.dependencies == 'full'
+        run: python -c "import torch, onnx, onnxruntime"
+      - name: Test classical MOR
+        if: matrix.dependencies == 'core'
+        run: >-
+          python -m pytest tests/algorithm tests/backends tests/operators tests/models
+          tests/test_reductors.py tests/test_lrsmith_lowrank.py
+          tests/test_dmd_reductor.py tests/test_pod_dmd_reductor.py
+          -p no:cacheprovider
+      - name: Test full suite
+        if: matrix.dependencies != 'core'
+        run: python -m pytest -p no:cacheprovider

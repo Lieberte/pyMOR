@@ -5,14 +5,19 @@ from mor.operators import matrixOperator
 
 @registerAlgorithm('linear', 'shifted')
 class shiftedLinear(linear):
-    def solve(self, A: matrixOperator, rhs: Any, E: Optional[matrixOperator] = None, shift: complex = 0.0, trans: bool = False, **kwargs) -> Any:
-        backend, n = self.localBackend, A.shape[0]
+    def factorize(self, A, E=None, shift=0.0, trans=False):
+        backend = self.localBackend
         aData = A.toBackendData()
-        isSparse = backend.array.isSparse(aData)
-        if isSparse:
-            EData = E.toBackendData() if E is not None else backend.array.eyeSparse(n, dtype=A.dtype)
-        else:
-            EData = E.toBackendData() if E is not None else backend.array.eye(n, dtype=A.dtype)
+        eData = backend.array.eyeLike(aData) if E is None else E.toBackendData()
+        data = aData + shift * eData
+        if trans:
+            data = backend.linalg.transpose(data)
+        return backend.linalg.factorize(data)
+
+    def solve(self, A: matrixOperator, rhs: Any, E: Optional[matrixOperator] = None, shift: complex = 0.0, trans: bool = False, **kwargs) -> Any:
+        backend = self.localBackend
+        aData = A.toBackendData()
+        EData = E.toBackendData() if E is not None else backend.array.eyeLike(aData)
         M = aData + shift * EData
         if trans: M = backend.linalg.transpose(M)
         result = backend.linalg.solve(M, rhs)

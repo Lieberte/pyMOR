@@ -27,6 +27,10 @@ class lrsmith(backendLyapunov):
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False) -> Any:
         backend, bData = self.localBackend, B.toBackendData()
         self._resetStats()
+        self.validateIterationOptions()
+        maxRank = self.options.get('maxRank')
+        if maxRank is not None:
+            self.validateColumnOption('maxRank', maxRank)
         if self.options.get('checkStability', True):
             radius = estimateDiscreteRadius(A, E)
             self.lastSpectralRadiusEstimate = radius
@@ -35,25 +39,28 @@ class lrsmith(backendLyapunov):
         if trans:
             bData = backend.linalg.transpose(bData)
         if backend.array.ndim(bData) == 1: bData = backend.array.reshape(bData, (-1, 1))
-        effectiveRhs = self._solveDescriptor(E, bData, trans=trans)
+        descriptorSolve = self._descriptorSolver(E, trans=trans)
+        effectiveRhs = descriptorSolve(bData)
         maxIter, tol, maxRank = self.options.get('maxIter', 200), self.options.get('tol', 1e-10), self.options.get('maxRank', None)
         z = backend.array.copy(effectiveRhs)
         bNorm = backend.linalg.norm(backend.linalg.dot(effectiveRhs.T, effectiveRhs), ord=2)
         bTol = backend.array.max(backend.array.array([bNorm * tol, 1e-20]))
-        w = self._advance(A, E, effectiveRhs, trans=trans)
+        w = None
         self.lastTolerance = float(bTol)
         for iteration in range(1, maxIter + 1):
-            transformedZ = self._advance(A, E, z, trans=trans)
+            transformedZ = descriptorSolve(A.apply(z, trans=trans))
             res = self.discreteLyapunovResidualNorm(transformedZ, z, effectiveRhs)
             self.lastResidualHistory.append(float(res))
             self.lastIterations = iteration
             if res <= bTol or iteration == maxIter:
                 break
+            if w is None:
+                w = descriptorSolve(A.apply(effectiveRhs, trans=trans))
             z = backend.array.hstack([z, w])
             if maxRank is not None and backend.array.shape(z)[1] > maxRank:
                 U, S, _ = backend.decomposition.svdDense(z, fullMatrices=False)
                 z = backend.linalg.dot(U[:, :maxRank], backend.array.diag(S[:maxRank]))
-            w = self._advance(A, E, w, trans=trans)
+            w = descriptorSolve(A.apply(w, trans=trans))
         self.lastResidual = float(res)
         self.lastConverged = bool(res <= bTol)
         return lowRankOperator(z, backendName=backend.name)
@@ -77,6 +84,14 @@ class lrsmith(backendLyapunov):
         if trans:
             eData = self.localBackend.linalg.transpose(eData)
         return self.localBackend.linalg.solve(eData, rhs)
+
+    def _descriptorSolver(self, E, trans=False):
+        if E is None:
+            return lambda rhs: rhs
+        eData = E.toBackendData()
+        if trans:
+            eData = self.localBackend.linalg.transpose(eData)
+        return self.localBackend.linalg.factorize(eData)
 
     def discreteLyapunovResidualNorm(self, u: Any, v: Any, w: Any) -> float:
         backend = self.localBackend

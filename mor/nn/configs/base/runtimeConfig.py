@@ -3,8 +3,8 @@ from dataclasses import dataclass
 @dataclass
 class runtimeConfig:
     backendName: str = 'torch'
-    deviceName: str = 'cpu'
+    deviceName: str = 'auto'
     randomSeed: int | None = None
     dtypeName: str = 'float32'
     deterministic: bool = False
-    deviceAutoFallback: bool = True
+    deviceAutoFallback: bool = False

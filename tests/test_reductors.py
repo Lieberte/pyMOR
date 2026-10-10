@@ -30,6 +30,72 @@ def test_pod_end_to_end(rng):
     assert 0 <= result.reconstructionError <= 1
 
 
+@pytest.mark.parametrize('shape', [(12, 5), (5, 12)])
+@pytest.mark.parametrize('rank', [0, 2, 5])
+def test_sparse_pod_end_to_end(shape, rank):
+    from scipy.sparse import diags, issparse
+
+    data = diags([5., 4., 3., 2., 1.], shape=shape, format='csr')
+    snapshots = matrixOperator(data, backendName='scipy')
+    result = podReductor('scipy').reduce(snapshots, rank=rank)
+    basis = result.V.toNumpy()
+    reconstructed = basis @ (basis.T @ data.toarray())
+    expectedError = np.linalg.norm(data.toarray() - reconstructed) / np.linalg.norm(data.toarray())
+    assert result.order == rank
+    assert issparse(snapshots.toBackendData())
+    np.testing.assert_allclose(result.S, np.arange(5., 5. - rank, -1), atol=1e-12)
+    assert result.reconstructionError == pytest.approx(expectedError, abs=1e-12)
+
+
+@pytest.mark.parametrize('sparse_product', [False, True])
+def test_sparse_weighted_pod(sparse_product):
+    from scipy.sparse import diags
+
+    data = diags([5., 4., 3., 2., 1.], shape=(12, 5), format='csr')
+    weights = np.linspace(1., 2., 12)
+    product = matrixOperator(diags(weights, format='csr') if sparse_product else np.diag(weights), 'scipy')
+    result = podReductor('scipy', product=product).reduce(matrixOperator(data, 'scipy'), rank=3)
+    basis = result.V.toNumpy()
+    np.testing.assert_allclose(basis.T @ product.apply(basis), np.eye(3), atol=1e-12)
+    residual = data.toarray() - basis @ (basis.T @ product.apply(data.toarray()))
+    expected = np.sqrt(np.sum(residual * product.apply(residual)) /
+                       np.sum(data.toarray() * product.apply(data.toarray())))
+    assert result.reconstructionError == pytest.approx(expected, abs=1e-12)
+
+
+@pytest.mark.parametrize('centered,weighted', [(False, False), (True, False), (False, True)])
+def test_blocked_pod_diagnostic_matches_explicit_residual(centered, weighted):
+    rng = np.random.default_rng(33)
+    data = rng.normal(size=(1024, 600)) + (1e8 if centered else 0.)
+    basis = np.linalg.qr(rng.normal(size=(1024, 8)))[0]
+    snapshots = matrixOperator(data, 'scipy')
+    mean = data.mean(axis=1) if centered else None
+    product = matrixOperator(np.diag(np.linspace(1., 2., 1024)), 'scipy') if weighted else None
+    reductor = podReductor('scipy')
+    reductor.updateOptions(snapshots)
+    prepared = data - mean[:, None] if centered else data
+    weightedData = product.apply(prepared) if weighted else prepared
+    residual = prepared - basis @ (basis.T @ weightedData)
+    expected = (np.sqrt(np.sum(residual * product.apply(residual)) / np.sum(prepared * weightedData))
+                if weighted else np.linalg.norm(residual) / np.linalg.norm(prepared))
+    actual = reductor._reconstructionError(snapshots, basis, mean, product)
+    assert actual == pytest.approx(expected, rel=1e-12)
+
+
+@pytest.mark.parametrize('scale', [1e-200, 1e200])
+def test_blocked_pod_diagnostic_preserves_norm_scaling(scale):
+    from scipy.linalg import norm
+
+    data = np.ones((1024, 600)) * scale
+    basis = np.zeros((1024, 1))
+    basis[0, 0] = 1.
+    reductor = podReductor('scipy')
+    snapshots = matrixOperator(data, 'scipy')
+    reductor.updateOptions(snapshots)
+    residual = data - basis @ (basis.T @ data)
+    assert reductor._reconstructionError(snapshots, basis, None, None) == pytest.approx(norm(residual.ravel()) / norm(data.ravel()))
+
+
 def test_weighted_pod_passes_product_to_dual_svd(rng):
     snapshots = matrixOperator(rng.standard_normal((10, 6)), backendName='scipy')
     product = matrixOperator(np.diag(np.linspace(1.0, 2.0, 10)), backendName='scipy')
@@ -135,8 +201,10 @@ def test_balanced_truncation_uses_model_time_domain_by_default(rng):
         isContinuous=False,
     )
 
-    with pytest.raises(NotImplementedError, match='Dense discrete'):
-        balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=2)
+    rom = balancedTruncationReductor(globalBackendName='scipy').reduce(model, order=1)
+    assert not rom.isContinuous
+    assert rom.order == 1
+    assert rom.solverInfo['controllability']['algorithm'] == 'discreteBartelsStewart'
 
 
 def test_sparse_discrete_balanced_truncation_uses_lrsmith(rng):

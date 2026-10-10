@@ -4,6 +4,17 @@ import numpy as np
 
 class backendBase(ABC):
     class linalg:
+        LinAlgError = np.linalg.LinAlgError
+
+        @staticmethod
+        def applyDirichlet(A: Any, rhs: Any, indices: Any, values: Any):
+            raise NotImplementedError('This backend does not provide Dirichlet elimination')
+
+        @staticmethod
+        def factorize(A: Any):
+            """Return a reusable solve callable; factorBytes is an optional estimate."""
+            raise NotImplementedError('This backend does not provide reusable factorization')
+
         @staticmethod
         @abstractmethod
         def solve(A: Any, b: Any) -> Any:
@@ -111,6 +122,30 @@ class backendBase(ABC):
 
     class array:
         @staticmethod
+        def toArrayLike(data: Any, like: Any) -> Any:
+            raise NotImplementedError('This backend does not provide input conversion matching an array')
+
+        @staticmethod
+        def resultType(*values: Any) -> Any:
+            raise NotImplementedError('This backend does not provide dtype promotion')
+
+        @staticmethod
+        def astype(data: Any, dtype: Any) -> Any:
+            raise NotImplementedError('This backend does not provide dtype conversion')
+
+        @staticmethod
+        def isDiagonal(data: Any) -> bool:
+            raise NotImplementedError('This backend does not provide diagonal detection')
+
+        @staticmethod
+        def diagonal(data: Any) -> Any:
+            raise NotImplementedError('This backend does not provide diagonal extraction')
+
+        @staticmethod
+        def sparseFromTriplets(values: Any, rows: Any, columns: Any, shape: Tuple[int, int], like: Any = None) -> Any:
+            raise NotImplementedError('This backend does not provide sparse assembly')
+
+        @staticmethod
         @abstractmethod
         def zeros(shape: Tuple[int, ...], dtype: Any = None) -> Any:
             pass
@@ -127,7 +162,7 @@ class backendBase(ABC):
 
         @staticmethod
         def eyeLike(a: Any) -> Any:
-            pass
+            raise NotImplementedError('This backend does not provide a matching identity')
 
         @staticmethod
         def hstack(arrays: list[Any]) -> Any:

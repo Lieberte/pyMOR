@@ -1,4 +1,5 @@
 from typing import Any
+from numbers import Real
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 from mor.nn.data.baseDataModule import baseDataModule
@@ -20,8 +21,8 @@ class snapshotDataModule(baseDataModule):
 
     @classmethod
     def fromSnapshots(cls, inputs: Any, targets: Any | None = None, validationSplit: float = 0.2, shuffle: bool = True, randomSeed: int | None = None, **kwargs):
-        inputsTensor = cls._toFloatTensor(inputs)
-        targetsTensor = cls._toFloatTensor(targets if targets is not None else inputs)
+        """Split samples with a ratio in [0, 1); zero evaluates on the training data."""
+        inputsTensor, targetsTensor = cls._preparePair(inputs, targets)
         sampleCount = int(inputsTensor.shape[0])
         trainIndices, validationIndices = cls._splitIndices(sampleCount, validationSplit, shuffle, randomSeed)
         if trainIndices.numel() == 0:
@@ -41,6 +42,10 @@ class snapshotDataModule(baseDataModule):
     def _preparePair(cls, inputs: Any, targets: Any | None) -> tuple[torch.Tensor, torch.Tensor]:
         inputsTensor = cls._toFloatTensor(inputs)
         targetsTensor = cls._toFloatTensor(targets if targets is not None else inputs)
+        if inputsTensor.ndim == 0 or targetsTensor.ndim == 0:
+            raise ValueError('inputs and targets must have a sample dimension')
+        if inputsTensor.shape[0] != targetsTensor.shape[0]:
+            raise ValueError('inputs and targets must have the same sample count')
         return inputsTensor, targetsTensor
 
     @staticmethod
@@ -49,8 +54,12 @@ class snapshotDataModule(baseDataModule):
 
     @staticmethod
     def _splitIndices(sampleCount: int, validationSplit: float, shuffle: bool, randomSeed: int | None) -> tuple[torch.Tensor, torch.Tensor]:
+        if (not isinstance(validationSplit, Real) or isinstance(validationSplit, bool)
+                or not 0 <= validationSplit < 1):
+            raise ValueError('validationSplit must be a real number in [0, 1)')
         validationCount = int(round(sampleCount * validationSplit))
-        validationCount = max(1, min(validationCount, sampleCount - 1)) if sampleCount > 1 else 0
+        validationCount = (max(1, min(validationCount, sampleCount - 1))
+                           if sampleCount > 1 and validationSplit > 0 else 0)
         if shuffle:
             generator = torch.Generator()
             if randomSeed is not None:

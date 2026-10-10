@@ -20,16 +20,16 @@ from mor.nn.models import (
     thermalCategoryKey,
 )
 
-try:
-    from scripts.train_thermal_discrete_pinn import (
+if __package__ in (None, ""):
+    from train_thermal_discrete_pinn import (
         _calibrateExpertBlend,
         _evaluate,
         _fit,
         _splitCases,
         _summary,
     )
-except ModuleNotFoundError:
-    from train_thermal_discrete_pinn import (
+else:
+    from scripts.train_thermal_discrete_pinn import (
         _calibrateExpertBlend,
         _evaluate,
         _fit,

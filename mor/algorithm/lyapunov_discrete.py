@@ -17,7 +17,7 @@ def estimateDiscreteRadius(A, E=None) -> float | None:
         else:
             matrix = toDense(aData)
         return float(np.max(np.abs(np.linalg.eigvals(matrix))))
-    except Exception:
+    except (np.linalg.LinAlgError, TypeError, ValueError, NotImplementedError):
         return None
 
 

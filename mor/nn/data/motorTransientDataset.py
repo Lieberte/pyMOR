@@ -10,13 +10,17 @@ from zipfile import ZipFile
 
 import numpy as np
 
-from .motorFemComponentCase import (
+from .motorFemGeometry import (
+    boundaryNodeGeometry,
+    matchIntegratedPower,
+)
+from .motorFemBoundary import (
     PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
-    _boundaryNodeGeometry,
-    _h5py,
-    _matchIntegratedPower,
-    _overviewHeatFlowRates,
+)
+from .motorFemIO import (
+    loadH5py,
+    overviewHeatFlowRates,
 )
 from .motorFullResolutionDataset import _writeJson
 from .motorStaDataset import motorStaArchiveInfo, inspectMotorStaArchive
@@ -64,12 +68,12 @@ class motorTransientSeriesRecord:
         return self.caseDirectory / 'data.npz'
 
     def times(self) -> np.ndarray:
-        h5py = _h5py()
+        h5py = loadH5py()
         with h5py.File(self.seriesPath, 'r') as series:
             return np.asarray(series['timeS'], dtype=np.float64)
 
     def loadFrame(self, index: int) -> motorTransientFrame:
-        h5py = _h5py()
+        h5py = loadH5py()
         with h5py.File(self.seriesPath, 'r') as series:
             count = int(series['timeS'].shape[0])
             resolvedIndex = int(index)
@@ -88,7 +92,7 @@ class motorTransientSeriesRecord:
             )
 
     def iterTransitions(self):
-        h5py = _h5py()
+        h5py = loadH5py()
         with h5py.File(self.seriesPath, 'r') as series:
             times = np.asarray(series['timeS'], dtype=np.float64)
             for currentIndex in range(1, times.size):
@@ -182,7 +186,7 @@ def _loadContext(viewRoot: Path, entry: dict[str, Any], frameCount: int) -> _com
     if sourceNodes.size != boundaryWeights.size or sourceNodes.size != patchIds.size:
         raise ValueError(f'transient boundary arrays are not aligned: {caseDirectory}')
     componentCenter = np.average(centers, axis=0, weights=volumes)
-    boundaryNodes, _, boundaryNodeWeights = _boundaryNodeGeometry(
+    boundaryNodes, _, boundaryNodeWeights = boundaryNodeGeometry(
         nodes, triangles, componentCenter
     )
     nodalAreas = np.zeros(nodes.shape[0], dtype=np.float64)
@@ -215,7 +219,7 @@ def _chunkWidth(valueCount: int) -> int:
 
 
 def _openSeries(context: _componentContext, times: np.ndarray, members: Sequence[str]) -> None:
-    h5py = _h5py()
+    h5py = loadH5py()
     context.temporarySeriesPath.unlink(missing_ok=True)
     series = h5py.File(context.temporarySeriesPath, 'w')
     series.attrs['formatVersion'] = TRANSIENT_SERIES_FORMAT_VERSION
@@ -286,7 +290,7 @@ def _frameFields(resultFile: Any, context: _componentContext) -> tuple[np.ndarra
         where=context.nodalBoundaryAreasM2 > 0.0,
     )
     patchFlux = rawNodalHeatFlux[context.boundarySourceNodes] * scale
-    overviewRates = _overviewHeatFlowRates(resultFile, context.overviewBase)
+    overviewRates = overviewHeatFlowRates(resultFile, context.overviewBase)
     for patch in context.patchMetadata:
         mask = context.boundaryPatchIds == int(patch['patchId'])
         if not np.any(mask):
@@ -301,7 +305,7 @@ def _frameFields(resultFile: Any, context: _componentContext) -> tuple[np.ndarra
             else float(np.dot(patchFlux[mask], context.boundaryWeightsM2[mask]))
         )
         calibrated = patchFlux[mask].copy()
-        _matchIntegratedPower(calibrated, context.boundaryWeightsM2[mask], expectedPower)
+        matchIntegratedPower(calibrated, context.boundaryWeightsM2[mask], expectedPower)
         patchFlux[mask] = calibrated
     boundaryInputFlux = np.zeros_like(patchFlux)
     resultMask = context.boundaryTypeIds == RESULT_HEAT_FLUX_BOUNDARY_TYPE
@@ -412,7 +416,7 @@ def buildMotorTransientSeriesFromSta(
         for context in contexts:
             _openSeries(context, times, info.availableResultMembers)
         try:
-            h5py = _h5py()
+            h5py = loadH5py()
             with tempfile.TemporaryDirectory(prefix='.transient-results-', dir=graphRoot.parent) as temporary:
                 extracted = Path(temporary) / 'result.h5'
                 with ZipFile(info.sourcePath) as archive:

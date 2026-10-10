@@ -18,9 +18,6 @@ def selectSVDVariant(backendName: str = 'scipy', **kwargs) -> str:
     minDim = min(nRows, nCols)
     aspect = max(nRows, nCols) / max(minDim, 1)
     rankRatio = None if rank is None or minDim == 0 else rank / minDim
-    metadata = getattr(xOperator, 'metadata', {})
-    isDiagonal = bool(metadata.get('isDiagonal', getattr(xOperator, 'isDiagonal', False)))
-    isComposed = bool(metadata.get('isComposed', getattr(xOperator, 'isComposed', False)))
 
     if kwargs.get('product') is not None:
         return 'dual'
@@ -35,11 +32,12 @@ def selectSVDVariant(backendName: str = 'scipy', **kwargs) -> str:
         return 'economic'
 
     if getattr(xOperator, 'isSparse', False):
-        if nRows >= nCols:
-            return 'dual'
         return 'economic'
 
     if backendName == 'scipy' and nRows == nCols and 32 <= minDim <= 128:
+        metadata = getattr(xOperator, 'metadata', {})
+        isDiagonal = bool(metadata.get('isDiagonal', getattr(xOperator, 'isDiagonal', False)))
+        isComposed = bool(metadata.get('isComposed', getattr(xOperator, 'isComposed', False)))
         if isDiagonal or isComposed:
             return 'dual'
 

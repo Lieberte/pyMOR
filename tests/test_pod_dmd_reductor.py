@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import pytest
 
@@ -155,7 +156,6 @@ def test_pod_dmd_accepts_composed_snapshot_operator():
 
 
 def test_pod_dmd_torch_preserves_backend_dtype_and_device():
-    torch = pytest.importorskip('torch')
     snapshots, _ = embeddedSnapshots(stateDimension=8)
     tensor = torch.tensor(snapshots, dtype=torch.float32)
 

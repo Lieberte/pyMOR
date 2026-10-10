@@ -20,10 +20,7 @@ FIXED_TEMPERATURE_BOUNDARY_TYPE = 1
 
 
 def _h5py():
-    try:
-        import h5py
-    except ImportError as error:
-        raise ImportError('box FEM conversion requires h5py') from error
+    import h5py
     return h5py
 
 

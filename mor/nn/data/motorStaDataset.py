@@ -10,14 +10,19 @@ from typing import Sequence
 from zipfile import ZipFile, ZipInfo
 
 from .motorFemComponentCase import (
+    buildMotorFemComponentCase,
+)
+from .motorFemMetadata import (
+    activeFemRegions,
+    normalizedComponentName,
+    resolveFemSystem,
+    thermalAnalysisMetadata,
+)
+from .motorFemBoundary import (
     CONVECTION_BOUNDARY_TYPE,
     FIXED_TEMPERATURE_BOUNDARY_TYPE,
     PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
-    buildMotorFemComponentCase,
-    _normalizedComponentName,
-    _resolveFemSystem,
-    _thermalAnalysisMetadata,
 )
 from .thermalComponentCase import saveThermalComponentDataset
 from .motorWholeDataset import saveWholeMotorDataset
@@ -36,6 +41,7 @@ class motorStaArchiveInfo:
     availableResultMembers: tuple[str, ...]
     componentNames: tuple[str, ...]
     meshMembers: tuple[str, ...]
+    inactiveComponentNames: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -184,12 +190,17 @@ def inspectMotorStaArchive(
         raise FileNotFoundError(f'STA archive does not exist: {sourcePath}')
     with ZipFile(sourcePath) as archive:
         control = _controlFromArchive(archive)
-        femSystemUuid, femSystem, _ = _resolveFemSystem(control)
-        regions = tuple(femSystem.get('femRegions', {}).values())
+        femSystemUuid, femSystem, _ = resolveFemSystem(control)
+        regions = tuple(activeFemRegions(femSystem).values())
+        inactiveComponentNames = tuple(
+            normalizedComponentName(region.get('name', ''))
+            for region in femSystem.get('femRegions', {}).values()
+            if region.get('isActive', True) is False
+        )
         if not regions:
             raise ValueError('3D FEM system does not contain any regions')
         componentNames = tuple(
-            _normalizedComponentName(region.get('name', '')) for region in regions
+            normalizedComponentName(region.get('name', '')) for region in regions
         )
         if len(set(componentNames)) != len(componentNames):
             raise ValueError(f'normalized FEM component names must be unique: {componentNames}')
@@ -206,7 +217,7 @@ def inspectMotorStaArchive(
             resultMember=resultMember,
             systemUuid=femSystemUuid,
         )
-        analysis = _thermalAnalysisMetadata(
+        analysis = thermalAnalysisMetadata(
             control,
             snapshotTimeS=(
                 selectedTime
@@ -227,6 +238,7 @@ def inspectMotorStaArchive(
         availableResultMembers=resultMembers,
         componentNames=componentNames,
         meshMembers=meshMembers,
+        inactiveComponentNames=inactiveComponentNames,
     )
 
 
@@ -426,6 +438,7 @@ def buildMotorDatasetFromSta(
                     'selectedResultTime': info.resultTime,
                     **temporalMetadata,
                     'availableComponents': info.componentNames,
+                    'inactiveComponents': info.inactiveComponentNames,
                     'selectedComponents': tuple(
                         case.metadata.get('componentInstance', case.componentType)
                         for case in cases
@@ -439,6 +452,7 @@ def buildMotorDatasetFromSta(
                 'selectedResultTime': info.resultTime,
                 **temporalMetadata,
                 'availableComponents': info.componentNames,
+                'inactiveComponents': info.inactiveComponentNames,
                 'selectedComponents': tuple(
                     case.metadata.get('componentInstance', case.componentType)
                     for case in cases

@@ -18,10 +18,10 @@ from mor.nn.data import (
 from mor.nn.losses import thermalSteadyPinnLoss
 from mor.nn.models import thermalCategorizedOperatorTorch, thermalCategoryKey
 
-try:
-    from scripts.train_thermal_discrete_pinn import _splitCases
-except ModuleNotFoundError:
+if __package__ in (None, ""):
     from train_thermal_discrete_pinn import _splitCases
+else:
+    from scripts.train_thermal_discrete_pinn import _splitCases
 
 
 def _arguments() -> argparse.Namespace:

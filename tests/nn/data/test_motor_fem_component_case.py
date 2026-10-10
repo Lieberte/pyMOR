@@ -30,7 +30,7 @@ from mor.nn.data.motorFemComponentCase import (
 from mor.nn.data.motorStaDataset import _selectedResultMember
 
 
-h5py = pytest.importorskip('h5py')
+import h5py
 
 
 def test_boundary_normal_falls_back_to_largest_face_when_nodal_vectors_cancel():
@@ -173,6 +173,27 @@ def test_grouped_subsampling_preserves_heat_source_region_volumes():
         np.dot(heatSources[selection], selectedWeights),
         np.dot(heatSources, weights),
     )
+
+
+def test_grouped_sampling_keeps_seeded_selection_for_interleaved_groups():
+    weights = np.arange(1., 19.)
+    groups = np.array([10, 2, -4, 2, 10, 2, 2, -4, 10, 2, 2, -4, 10, 2, -4, 2, 10, 2])
+    selection, selectedWeights = _sampleByGroupWithConservedWeight(weights, groups, 6, 7)
+    np.testing.assert_array_equal(selection, [4, 9, 10, 12, 14, 17])
+    for group in np.unique(groups):
+        assert selectedWeights[groups[selection] == group].sum() == pytest.approx(weights[groups == group].sum())
+
+
+def test_cancelled_normals_use_first_of_largest_adjacent_faces():
+    nodes = np.array([[0., 0., 0.], [1., 0., 0.], [0., 2., 0.],
+                      [0., 2., 0.], [0., 0., 2.]])
+    faces = np.array([[0, 1, 2], [0, 2, 1], [0, 3, 4], [0, 4, 3]])
+    indices, normals, areas = _boundaryNodeGeometry(nodes, faces, np.zeros(3))
+    np.testing.assert_array_equal(indices, np.arange(5))
+    np.testing.assert_allclose(normals[0], [1., 0., 0.])
+    np.testing.assert_allclose(np.linalg.norm(normals, axis=1), 1.)
+    assert areas[0] == pytest.approx(2.)
+    assert areas.sum() == pytest.approx(6.)
 
 
 def _writeScalar(group, name, value):
@@ -562,6 +583,41 @@ def test_sta_archive_builds_one_dataset_with_independent_component_cases(tmp_pat
         'component': 'dataset.json',
         'wholeMotor': 'whole_motor/dataset.json',
     }
+
+
+def test_inactive_fem_regions_are_excluded_without_requiring_mesh_or_results(tmp_path):
+    from mor.nn.data.motorFemComponentCase import motorFemComponentNames
+    from mor.nn.data.motorStaDataset import inspectMotorStaArchive
+    solved = _makeSolvedCase(tmp_path / 'source')
+    controlPath = solved / 'controlData.json'
+    control = json.loads(controlPath.read_text(encoding='utf-8'))
+    regions = control['rootSystem']['thermalComponents']['fem3DThermals']['system']['femRegions']
+    regions['disabled'] = {'name': 'damper_bar', 'meshUuid': 'absent', 'isActive': False}
+    controlPath.write_text(json.dumps(control), encoding='utf-8')
+    assert motorFemComponentNames(solved) == ('part',)
+    with pytest.raises(ValueError, match='inactive'):
+        buildMotorFemComponentCase(solved, 'damper_bar')
+    source = tmp_path / 'motor.sta'
+    with ZipFile(source, 'w') as archive:
+        for path in solved.rglob('*'):
+            if path.is_file():
+                archive.write(path, path.relative_to(solved).as_posix())
+    info = inspectMotorStaArchive(source)
+    assert info.componentNames == ('part',)
+    assert info.inactiveComponentNames == ('damper_bar',)
+    build = buildMotorDatasetFromSta(source, tmp_path / 'dataset')
+    index = json.loads(build.indexPath.read_text(encoding='utf-8'))
+    assert index['metadata']['inactiveComponents'] == ['damper_bar']
+    with pytest.raises(ValueError, match='inactive'):
+        buildMotorDatasetFromSta(source, tmp_path / 'explicit', components=['damper_bar'])
+
+
+def test_active_component_missing_results_reports_identity(tmp_path):
+    solved = _makeSolvedCase(tmp_path)
+    with h5py.File(solved / 'results/system/2500.h5', 'a') as result:
+        del result['thermalComponents/thermal3dFem/system/region/3dResults/results/temperature']
+    with pytest.raises(ValueError, match="part.*region.*temperature"):
+        buildMotorFemComponentCase(solved, 'part')
 
 
 def test_whole_motor_view_pairs_component_interface_patches(tmp_path):

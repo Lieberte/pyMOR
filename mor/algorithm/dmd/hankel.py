@@ -29,6 +29,7 @@ class hankelDMD(exactDMD):
         delay: int = 2,
         mode: str = 'exact',
         amplitudeMethod: str = 'first',
+        maxAugmentedBytes: int | None = None,
         **kwargs,
     ) -> hankelDMDResult:
         self._rejectTrainingTimes(kwargs)
@@ -44,6 +45,13 @@ class hankelDMD(exactDMD):
         if not np.all(np.isfinite(data)):
             raise ValueError("Snapshots must contain only finite values.")
         columns = data.shape[1] - delay + 1
+        augmentedBytes = int(data.shape[0]) * int(delay) * int(columns) * data.dtype.itemsize
+        if maxAugmentedBytes is not None:
+            if (not isinstance(maxAugmentedBytes, Integral) or isinstance(maxAugmentedBytes, bool)
+                    or maxAugmentedBytes < 0):
+                raise ValueError('maxAugmentedBytes must be a non-negative integer or None')
+            if augmentedBytes > maxAugmentedBytes:
+                raise MemoryError(f'Hankel augmentation requires {augmentedBytes} bytes, exceeding maxAugmentedBytes')
         augmented = np.vstack([data[:, offset:offset + columns] for offset in range(delay)])
         baseResult = super().fit(
             matrixOperator(augmented, 'scipy'),
@@ -62,7 +70,8 @@ class hankelDMD(exactDMD):
             singularValues=baseResult.singularValues,
             rank=baseResult.rank,
             dt=dt,
-            diagnostics={**baseResult.diagnostics, 'variant': 'hankel', 'delay': int(delay)},
+            diagnostics={**baseResult.diagnostics, 'variant': 'hankel', 'delay': int(delay),
+                         'augmentedBytes': augmentedBytes, 'augmentedShape': augmented.shape},
             trainingSteps=data.shape[1],
             inputWasReal=not np.iscomplexobj(data),
             augmentedModes=baseResult.modes,

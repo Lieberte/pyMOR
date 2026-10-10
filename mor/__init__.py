@@ -2,8 +2,8 @@
 
 Importing the top-level package makes the classical MOR core available
 (registries, operators, models, solvers, reductors) and registers the default
-``scipy`` backend. The ``torch`` backend and the neural-network stack remain
-optional and load on demand.
+``scipy`` backend. The ``torch`` backend is registered unconditionally and loads on demand.
+Feature distributions provide the dependencies for their selected capabilities.
 """
 
 __version__ = "0.1.0"
@@ -22,6 +22,7 @@ from .operators import (
 )
 from .reductors.registry import reductorRegistry, registerReductor
 from .reductors import dmdReductor, podDmdReductor, podDmdResult
+from .runtime import DEVICE_CHOICES, getRuntimeInfo, resolveDevice, resolveDeviceName
 from .solvers.registry import registerLyapunovSolver, solverRegistry
 
 __all__ = [
@@ -45,6 +46,10 @@ __all__ = [
     "dmdReductor",
     "podDmdReductor",
     "podDmdResult",
+    "DEVICE_CHOICES",
+    "resolveDevice",
+    "resolveDeviceName",
+    "getRuntimeInfo",
     "operatorBase",
     "matrixOperator",
     "lowRankOperator",

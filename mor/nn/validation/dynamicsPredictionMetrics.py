@@ -10,11 +10,27 @@ class dynamicsPredictionMetrics(baseValidation):
 
     def evaluate(self, model: Any, dataModule: Any) -> dict:
         model.evalMode()
-        inputs, targets = dataModule.getValidationData()
+        parameter = next(model.parameters(), None)
+        device = parameter.device if parameter is not None else torch.device('cpu')
+        dtype = parameter.dtype if parameter is not None else torch.float32
+        loader = dataModule.getValidationLoader() if hasattr(dataModule, 'getValidationLoader') else None
+        batches = loader if loader is not None else [dataModule.getValidationData()]
+        total = torch.zeros((), device=device, dtype=torch.float64)
+        count = 0
         with torch.no_grad():
-            preds = model.forward(inputs)
-            if isinstance(preds, tuple): preds = preds[0]
-            mse = torch.mean((preds - targets) ** 2).item()
-        return {'mse': float(mse)}
+            for inputs, targets in batches:
+                inputs = torch.as_tensor(inputs).to(device=device, dtype=dtype, non_blocking=True)
+                targets = torch.as_tensor(targets).to(device=device, dtype=dtype, non_blocking=True)
+                if targets.numel() == 0:
+                    continue
+                preds = model.forward(inputs)
+                if isinstance(preds, (tuple, list)): preds = preds[0]
+                if preds.shape != targets.shape:
+                    raise ValueError('prediction and target shapes must match')
+                total += (preds.double() - targets.double()).square().sum()
+                count += targets.numel()
+        if count == 0:
+            raise ValueError('validation data is empty')
+        return {'mse': float((total / count).item())}
 
 nnRegistry.register('validation', 'dynamicsPredictionMetrics', dynamicsPredictionMetrics)

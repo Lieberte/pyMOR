@@ -37,8 +37,14 @@ class sampleBatch:
         x = np.concatenate([batch.x for batch in batches], axis=0)
         regionNames = np.concatenate([batch.regionNames for batch in batches], axis=0)
         normals = None
-        if all(batch.normals is not None for batch in batches):
-            normals = np.concatenate([batch.normals for batch in batches], axis=0)
+        normalBatches = [batch.normals for batch in batches if batch.normals is not None]
+        if normalBatches:
+            normalDtype = np.result_type(*normalBatches)
+            # Zero rows represent points without an available normal.
+            normals = np.concatenate([
+                batch.normals if batch.normals is not None else np.zeros_like(batch.x, dtype=normalDtype)
+                for batch in batches
+            ], axis=0)
         weights = None
         if all(batch.weights is not None for batch in batches):
             weights = np.concatenate([batch.weights for batch in batches], axis=0)

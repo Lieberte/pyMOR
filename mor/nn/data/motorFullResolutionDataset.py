@@ -10,18 +10,26 @@ import numpy as np
 from .motorFemComponentCase import (
     buildMotorFemComponentCase,
     motorFemComponentNames,
-    _boundaryNodeGeometry,
-    _elementHeatSources,
-    _findRegion,
-    _h5py,
-    _lumpedNodeVolumes,
-    _componentTypeName,
-    _normalizedComponentName,
-    _regionName,
-    _reshapeConnectivity,
-    _resolveFemSystem,
-    _surfacePatchSamples,
-    _tetrahedronGeometry,
+)
+from .motorFemMetadata import (
+    findRegion,
+    componentTypeName,
+    normalizedComponentName,
+    regionName,
+    resolveFemSystem,
+)
+from .motorFemGeometry import (
+    boundaryNodeGeometry,
+    lumpedNodeVolumes,
+    reshapeConnectivity,
+    tetrahedronGeometry,
+)
+from .motorFemBoundary import (
+    surfacePatchSamples,
+)
+from .motorFemIO import (
+    elementHeatSources,
+    loadH5py,
 )
 from .motorWholeDataset import saveWholeMotorDataset
 
@@ -106,23 +114,23 @@ def _writeJson(path: Path, value: Any) -> None:
 
 
 def _meshData(caseDirectory: Path, component: str):
-    h5py = _h5py()
+    h5py = loadH5py()
     control = json.loads((caseDirectory / 'controlData.json').read_text(encoding='utf-8'))
-    femSystemUuid, femSystem, femSchema = _resolveFemSystem(control)
-    regionUuid, region = _findRegion(femSystem, component)
+    femSystemUuid, femSystem, femSchema = resolveFemSystem(control)
+    regionUuid, region = findRegion(femSystem, component)
     meshUuid = str(region['meshUuid'])
     with h5py.File(caseDirectory / 'mesh' / f'{meshUuid}.samesh', 'r') as meshFile:
         nodes = np.asarray(meshFile['nodes'], dtype=np.float64).reshape(-1, 3)
-        tetrahedra = _reshapeConnectivity(
+        tetrahedra = reshapeConnectivity(
             meshFile['connectivityVolume'], 4, 'connectivityVolume'
         ).astype(np.int32, copy=False)
-        surfaceTriangles = _reshapeConnectivity(
+        surfaceTriangles = reshapeConnectivity(
             meshFile['connectivitySurface'], 3, 'connectivitySurface'
         ).astype(np.int32, copy=False)
-        elementCenters, elementVolumes = _tetrahedronGeometry(nodes, tetrahedra)
-        elementHeatSource = _elementHeatSources(meshFile, region, elementVolumes)
+        elementCenters, elementVolumes = tetrahedronGeometry(nodes, tetrahedra)
+        elementHeatSource = elementHeatSources(meshFile, region, elementVolumes)
         componentCenter = np.average(elementCenters, axis=0, weights=elementVolumes)
-        boundaryNodes, _, _ = _boundaryNodeGeometry(
+        boundaryNodes, _, _ = boundaryNodeGeometry(
             nodes, surfaceTriangles, componentCenter
         )
         (
@@ -131,21 +139,21 @@ def _meshData(caseDirectory: Path, component: str):
             boundaryWeights,
             boundaryPatchIds,
             _,
-        ) = _surfacePatchSamples(
+        ) = surfacePatchSamples(
             meshFile,
             region,
             nodes,
             surfaceTriangles,
             componentCenter,
         )
-    nodeWeights = _lumpedNodeVolumes(nodes.shape[0], tetrahedra, elementVolumes)
+    nodeWeights = lumpedNodeVolumes(nodes.shape[0], tetrahedra, elementVolumes)
     return {
         'femSystemUuid': str(femSystemUuid),
         'femSchema': femSchema,
         'regionUuid': str(regionUuid),
-        'regionName': _regionName(region),
-        'componentInstance': _normalizedComponentName(_regionName(region)),
-        'componentType': _componentTypeName(_regionName(region)),
+        'regionName': regionName(region),
+        'componentInstance': normalizedComponentName(regionName(region)),
+        'componentType': componentTypeName(regionName(region)),
         'meshUuid': meshUuid,
         'nodesMeters': nodes,
         'tetrahedra': tetrahedra,

@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 from mor.nn.data.geometry.samplers import baseSampler, combinedSampler, regionSampler
+from mor.nn.data.geometry.sampleBatch import sampleBatch
 from mor.nn.data.geometry.utils import (
     expandSampleWeights,
     normalizeSampleCountMap,
@@ -72,6 +73,7 @@ def test_base_sampler_weighted_batch():
     assert batch.size == 5
     assert list(batch.regionNames) == ['interior', 'interior', 'interior', 'left', 'left']
     assert np.allclose(batch.weights, np.array([2.0 / 3.0, 2.0 / 3.0, 2.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0]))
+    np.testing.assert_array_equal(batch.normals, [[0.0, 0.0]] * 3 + [[-1.0, 0.0]] * 2)
 
 
 def test_region_and_combined_sampler():
@@ -86,14 +88,53 @@ def test_region_and_combined_sampler():
     assert list(mixedBatch.regionNames) == ['interior', 'left', 'left']
 
 
-@pytest.mark.xfail(
-    reason='known bug: sampleBatch.concat drops normals when mixing interior and boundary batches',
-    strict=True,
+@pytest.mark.parametrize(
+    'counts, expectedNormals',
+    [
+        ({'interior': 1, 'left': 2}, [[0.0, 0.0], [-1.0, 0.0], [-1.0, 0.0]]),
+        ({'left': 2, 'interior': 1}, [[-1.0, 0.0], [-1.0, 0.0], [0.0, 0.0]]),
+        ({'left': 1, 'interior': 1, 'right': 1}, [[-1.0, 0.0], [0.0, 0.0], [1.0, 0.0]]),
+    ],
 )
-def test_mixed_batch_boundary_normals_preserved():
+def test_mixed_batch_boundary_normals_preserved(counts, expectedNormals):
     domain = dummyDomain()
     mixedBatch = combinedSampler(deterministicSampler(), deterministicSampler()).sampleMixedBatch(
         domain,
-        {'interior': 1, 'left': 2},
+        counts,
     )
-    assert np.allclose(mixedBatch.normals[1:], np.array([[-1.0, 0.0], [-1.0, 0.0]]))
+    np.testing.assert_array_equal(mixedBatch.normals, expectedNormals)
+
+
+def test_interior_only_concat_keeps_normals_absent():
+    domain = dummyDomain()
+    sampler = deterministicSampler()
+    batch = sampleBatch.concat([
+        sampler.sampleInteriorBatch(domain, 1),
+        sampler.sampleInteriorBatch(domain, 2),
+    ])
+    assert batch.normals is None
+
+
+def test_boundary_only_batch_keeps_both_boundary_normals():
+    batch = deterministicSampler().sampleBoundaryMixedBatch(dummyDomain(), {'left': 1, 'right': 1})
+    np.testing.assert_array_equal(batch.normals, [[-1.0, 0.0], [1.0, 0.0]])
+
+
+@pytest.mark.parametrize('normalDtype', [np.float32, np.float64])
+def test_mixed_concat_preserves_normal_dtype_and_input_batches(normalDtype):
+    interior = sampleBatch(x=np.array([[0.5, 0.5]]), regionNames=np.array(['interior']))
+    boundary = sampleBatch(
+        x=np.array([[0.0, 0.5]]),
+        regionNames=np.array(['left']),
+        normals=np.array([[-1.0, 0.0]], dtype=normalDtype),
+    )
+
+    batch = sampleBatch.concat([interior, boundary])
+
+    assert batch.normals.dtype == normalDtype
+    np.testing.assert_array_equal(batch.normals, [[0.0, 0.0], [-1.0, 0.0]])
+    assert interior.normals is None
+    np.testing.assert_array_equal(boundary.normals, [[-1.0, 0.0]])
+    subset = batch.subset(np.array([False, True]))
+    np.testing.assert_array_equal(subset.regionNames, ['left'])
+    np.testing.assert_array_equal(subset.normals, [[-1.0, 0.0]])

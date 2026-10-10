@@ -1,3 +1,4 @@
+import torch
 import warnings
 
 import numpy as np
@@ -65,7 +66,6 @@ def test_scipy_negative_tolerance_is_rejected():
     ],
 )
 def test_torch_robust_sqrt_factor_diagnostics(diagonal, tol, warningMatch):
-    torch = pytest.importorskip("torch")
     from mor.backends.torchBackend import torchBackend
 
     matrix = torch.diag(torch.tensor(diagonal, dtype=torch.float64))

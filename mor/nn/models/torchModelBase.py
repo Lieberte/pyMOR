@@ -2,6 +2,7 @@ from typing import Any
 import torch
 from torch import nn
 from .baseModel import baseModel
+from mor.runtime import resolveDeviceName, normalizeDeviceName
 
 class torchModelBase(nn.Module, baseModel):
     def __init__(self, modelName: str = 'torchModelBase', **kwargs):
@@ -9,13 +10,17 @@ class torchModelBase(nn.Module, baseModel):
         baseModel.__init__(self, modelName=modelName, **kwargs)
 
     def _resolveDeviceName(self, deviceName: str, allowAutoFallback: bool = True) -> str:
-        if deviceName.startswith('cuda') and not torch.cuda.is_available() and allowAutoFallback:
-            return 'cpu'
-        return deviceName
+        return resolveDeviceName(deviceName)
 
     def toDevice(self, deviceName: str, allowAutoFallback: bool = True) -> str:
         resolvedDeviceName = self._resolveDeviceName(deviceName, allowAutoFallback=allowAutoFallback)
-        self.to(resolvedDeviceName)
+        try:
+            self.to(resolvedDeviceName)
+        except RuntimeError:
+            if normalizeDeviceName(deviceName) != 'auto' or not allowAutoFallback or resolvedDeviceName != 'cuda':
+                raise
+            resolvedDeviceName = 'cpu'
+            self.to(resolvedDeviceName)
         self.deviceName = resolvedDeviceName
         return self.deviceName
 

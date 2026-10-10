@@ -28,17 +28,30 @@ from mor.nn.data import (
 )
 from mor.nn.losses import thermalMeanShapeEnergyLoss
 from mor.nn.models import thermalQuerySetOperatorTorch
-from run_motor_fem_speed_holdout import (
-    DEFAULT_COMPONENTS,
-    DEFAULT_TEST_SPEEDS,
-    HYBRID_ANCHORED_TARGET,
-    _batchToDevice,
-    _hybridUniformTemperatureBaseline,
-    _numericSpeedDirectories,
-    _publicRecords,
-    _summary,
-    _temperatureCenter,
-)
+if __package__ in (None, ""):
+    from run_motor_fem_speed_holdout import (
+        DEFAULT_COMPONENTS,
+        DEFAULT_TEST_SPEEDS,
+        HYBRID_ANCHORED_TARGET,
+        _batchToDevice,
+        _hybridUniformTemperatureBaseline,
+        _numericSpeedDirectories,
+        _publicRecords,
+        _summary,
+        _temperatureCenter,
+    )
+else:
+    from scripts.run_motor_fem_speed_holdout import (
+        DEFAULT_COMPONENTS,
+        DEFAULT_TEST_SPEEDS,
+        HYBRID_ANCHORED_TARGET,
+        _batchToDevice,
+        _hybridUniformTemperatureBaseline,
+        _numericSpeedDirectories,
+        _publicRecords,
+        _summary,
+        _temperatureCenter,
+    )
 
 
 OPERATING_SCALES = {

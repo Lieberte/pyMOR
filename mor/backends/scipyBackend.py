@@ -1,13 +1,63 @@
 import numpy as np
 from scipy import linalg
-from scipy.sparse import issparse, eye as speye
+from scipy.sparse import issparse, eye as speye, coo_matrix, csr_matrix
 from scipy.sparse.linalg import svds, norm as spnorm, spsolve
 from .backendsBase import backendBase
 from .registry import registerBackend
 
+_MAX_DENSE_DECOMPOSITION_BYTES = 64 * 1024 ** 2
+
+
+def _denseDecompositionData(data):
+    if not issparse(data):
+        return data
+    dtype = np.result_type(data.dtype, np.float32)
+    denseBytes = int(data.shape[0]) * int(data.shape[1]) * dtype.itemsize
+    if denseBytes > _MAX_DENSE_DECOMPOSITION_BYTES:
+        raise ValueError(
+            'Sparse full decomposition exceeds the dense conversion limit; '
+            'use a truncated sparse SVD or explicitly supply dense data.'
+        )
+    return data.toarray()
+
+
 @registerBackend('scipy', priority=50)
 class scipyBackend(backendBase):
     class linalg(backendBase.linalg):
+        @staticmethod
+        def applyDirichlet(A, rhs, indices, values):
+            dtype = np.result_type(A.dtype, rhs.dtype, values.dtype, np.float64)
+            matrix = csr_matrix(A, dtype=dtype)
+            result = np.asarray(rhs, dtype=dtype).reshape(-1).copy()
+            result -= np.asarray(matrix[:, indices] @ values).reshape(-1)
+            constrained = matrix.tolil()
+            constrained[:, indices] = 0
+            constrained[indices, :] = 0
+            constrained[indices, indices] = 1
+            result[indices] = values
+            return constrained.tocsr(), result.reshape(-1, 1)
+
+        @staticmethod
+        def factorize(data):
+            import warnings
+            from scipy.sparse.linalg import splu
+            data = data.astype(np.result_type(data.dtype, np.float64), copy=False)
+            if issparse(data):
+                factor = splu(data.tocsc())
+                def solve(rhs):
+                    if np.iscomplexobj(rhs) and not np.iscomplexobj(data):
+                        return factor.solve(rhs.real) + 1j * factor.solve(rhs.imag)
+                    return factor.solve(np.asarray(rhs, dtype=data.dtype))
+                solve.factorBytes = factor.nnz * (data.dtype.itemsize + 8) + data.shape[0] * 16
+                return solve
+            with warnings.catch_warnings():
+                warnings.simplefilter('error', linalg.LinAlgWarning)
+                factor = linalg.lu_factor(data)
+            def solve(rhs):
+                return linalg.lu_solve(factor, rhs)
+            solve.factorBytes = factor[0].nbytes + factor[1].nbytes
+            return solve
+
         @staticmethod
         def solve(A, b):
             return spsolve(A, b) if issparse(A) else linalg.solve(A, b)
@@ -22,7 +72,7 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def qr(A, mode='reduced'):
-            return linalg.qr(A, mode='economic' if mode == 'reduced' else mode)
+            return linalg.qr(_denseDecompositionData(A), mode='economic' if mode == 'reduced' else mode)
 
         @staticmethod
         def schur(A, output='real'):
@@ -30,11 +80,13 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def norm(x, ord=None):
-            return spnorm(x, ord=ord) if issparse(x) else linalg.norm(x, ord=ord)
+            if issparse(x):
+                return spnorm(x, ord=ord)
+            return linalg.norm(np.ravel(x, order='K')) if ord is None else linalg.norm(x, ord=ord)
 
         @staticmethod
         def dot(a, b):
-            return a @ b if issparse(a) else np.dot(a, b)
+            return a @ b if issparse(a) or issparse(b) else np.dot(a, b)
 
         @staticmethod
         def det(a):
@@ -140,7 +192,7 @@ class scipyBackend(backendBase):
     class decomposition(backendBase.decomposition):
         @staticmethod
         def svdDense(A, fullMatrices=False):
-            return linalg.svd(A, full_matrices=fullMatrices)
+            return linalg.svd(_denseDecompositionData(A), full_matrices=fullMatrices)
 
         @staticmethod
         def randomizedSvd(A, nComponents=None, iterations=2, randomState=0, fullMatrices=False):
@@ -151,17 +203,31 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def svdSparse(A, k, which='LM'):
+            if A.dtype.kind not in 'fc':
+                A = A.astype(np.float64)
+            scale = 1.0
+            if issparse(A):
+                if 0 < k < min(A.shape) and A.count_nonzero() == 0:
+                    return (np.eye(A.shape[0], k, dtype=A.dtype),
+                            np.zeros(k, dtype=A.real.dtype),
+                            np.eye(k, A.shape[1], dtype=A.dtype))
+                scale = np.max(np.abs(A.data), initial=0.0)
+                if scale > 0:
+                    A = A / scale
             U, S, Vt = svds(A, k=k, which=which)
+            S = S * scale
             idx = np.argsort(S)[::-1]
             return U[:, idx], S[idx], Vt[idx, :]
 
         @staticmethod
         def qrOrthogonalize(B, backend):
-            if issparse(B):
-                from scipy.sparse.linalg import qr as sparse_qr
-                Q, _ = sparse_qr(B)
-                return Q.toarray() if issparse(Q) else Q
-            return B / linalg.norm(B) if B.shape[1] == 1 else linalg.qr(B, mode='economic')[0]
+            # SciPy has no sparse QR API. Only bounded dense conversion is allowed.
+            B = _denseDecompositionData(B)
+            if B.shape[1] == 1:
+                length = linalg.norm(B)
+                if length != 0:
+                    return B / length
+            return linalg.qr(B, mode='economic')[0]
 
     class eigen(backendBase.eigen):
         @staticmethod
@@ -178,9 +244,39 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def eigh(A):
-            return linalg.eigh(A)
+            return linalg.eigh(_denseDecompositionData(A))
 
     class array(backendBase.array):
+        @staticmethod
+        def toArrayLike(data, like):
+            return scipyBackend.array.toArray(data)
+
+        @staticmethod
+        def resultType(*values):
+            return np.result_type(*values)
+
+        @staticmethod
+        def astype(data, dtype):
+            return data.astype(dtype, copy=False)
+
+        @staticmethod
+        def isDiagonal(data):
+            if data.ndim != 2 or data.shape[0] != data.shape[1]:
+                return False
+            if issparse(data):
+                entries = data.tocoo(copy=True)
+                entries.sum_duplicates()
+                return not np.any((entries.row != entries.col) & (entries.data != 0))
+            return np.count_nonzero(data) == np.count_nonzero(np.diagonal(data))
+
+        @staticmethod
+        def diagonal(data):
+            return data.diagonal() if issparse(data) else np.diagonal(data)
+
+        @staticmethod
+        def sparseFromTriplets(values, rows, columns, shape, like=None):
+            return coo_matrix((values, (rows, columns)), shape=shape).tocsr()
+
         @staticmethod
         def zeros(shape, dtype=None):
             return np.zeros(shape, dtype=dtype)
@@ -191,7 +287,7 @@ class scipyBackend(backendBase):
 
         @staticmethod
         def eyeLike(a):
-            return np.eye(a.shape[0], dtype=a.dtype)
+            return speye(a.shape[0], dtype=a.dtype, format='csr') if issparse(a) else np.eye(a.shape[0], dtype=a.dtype)
 
         @staticmethod
         def hstack(arrays):
@@ -209,6 +305,14 @@ class scipyBackend(backendBase):
         def toArray(data):
             if issparse(data):
                 return data
+            if type(data).__module__.startswith('torch'):
+                detached = data.detach()
+                if str(detached.layout) != 'torch.strided':
+                    coo = detached.to_sparse_coo().coalesce()
+                    indices = coo.indices().cpu().numpy()
+                    values = coo.values().resolve_conj().resolve_neg().cpu().numpy()
+                    return coo_matrix((values, (indices[0], indices[1])), shape=coo.shape).tocsr()
+                return detached.resolve_conj().resolve_neg().cpu().numpy()
             return np.asarray(data)
 
         @staticmethod
