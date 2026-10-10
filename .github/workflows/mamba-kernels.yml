@@ -1,0 +1,22 @@
+name: Official Mamba CUDA validation
+on:
+  workflow_dispatch:
+jobs:
+  validate:
+    runs-on: [self-hosted, linux, x64, gpu]
+    env:
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require existing CUDA-enabled Torch and toolkit
+        run: |
+          python -c "import torch; assert torch.cuda.is_available(); print(torch.__version__, torch.version.cuda)"
+          nvcc --version
+      - name: Install optional official engine
+        run: python -m pip install '.[mamba]' --no-build-isolation
+      - name: Verify compiled kernels, gradients, training and reload
+        run: python scripts/check_official_mamba.py --output reports/official_mamba/report.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: official-mamba-validation
+          path: reports/official_mamba/report.json

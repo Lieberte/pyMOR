@@ -22,13 +22,13 @@ from mor.nn.data import (
     thermalComponentFeatureSchema,
 )
 from mor.nn.models import thermalQuerySetOperatorTorch
-try:
+if __package__ in (None, ""):
     from run_motor_fem_speed_holdout import (
         DEFAULT_COMPONENTS,
         DEFAULT_TEST_SPEEDS,
         _batchToDevice,
     )
-except ModuleNotFoundError:
+else:
     from scripts.run_motor_fem_speed_holdout import (
         DEFAULT_COMPONENTS,
         DEFAULT_TEST_SPEEDS,

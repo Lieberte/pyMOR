@@ -1,5 +1,6 @@
 from .modelsBase import modelBase
 from .lti import ltiModel
+from .coupledThermal import coupledThermalModel, coupledThermalResult, reducedThermalComponent
 from .thermal import (
     tabulatedThermalProperty,
     thermalBoundaryField,
@@ -16,6 +17,9 @@ from .thermal import (
 __all__ = [
     'modelBase',
     'ltiModel',
+    'coupledThermalModel',
+    'coupledThermalResult',
+    'reducedThermalComponent',
     'tabulatedThermalProperty',
     'thermalBoundaryField',
     'thermalMaterial',

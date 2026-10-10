@@ -43,13 +43,22 @@ class optimizedDMD(exactDMD):
         initialRates = np.log(initial.eigenvalues.astype(complex)) / timeStep
         if not np.all(np.isfinite(initialRates)):
             raise ValueError("Optimized DMD requires nonzero finite initial eigenvalues.")
+        if not np.all(np.isfinite(times)):
+            raise ValueError('Optimized DMD training times must remain finite')
+        maxGrowth = (np.log(np.finfo(float).max) - 4.) / times[-1]
+        if np.any(initialRates.real > maxGrowth):
+            raise ValueError('Optimized DMD initial rates overflow the training horizon; rescale the snapshots')
 
         def unpack(parameters):
             half = parameters.size // 2
             return parameters[:half] + 1j * parameters[half:]
 
         def evaluate(rates):
-            dynamics = np.exp(rates[:, None] * times[None, :])
+            try:
+                with np.errstate(over='raise', invalid='raise'):
+                    dynamics = np.exp(rates[:, None] * times[None, :])
+            except FloatingPointError as error:
+                raise ValueError('Optimized DMD rates overflow the training horizon') from error
             modes = data @ np.linalg.pinv(dynamics)
             return modes, modes @ dynamics - data
 
@@ -58,7 +67,8 @@ class optimizedDMD(exactDMD):
             return np.concatenate([error.real.reshape(-1), error.imag.reshape(-1)])
 
         parameters = np.concatenate([initialRates.real, initialRates.imag])
-        solution = optimize.least_squares(residual, parameters, max_nfev=int(maxNfev))
+        upper = np.concatenate([np.full(initial.rank, maxGrowth), np.full(initial.rank, np.inf)])
+        solution = optimize.least_squares(residual, parameters, bounds=(-np.inf, upper), max_nfev=int(maxNfev))
         rates = unpack(solution.x)
         modes, error = evaluate(rates)
         eigenvalues = np.exp(rates * timeStep)

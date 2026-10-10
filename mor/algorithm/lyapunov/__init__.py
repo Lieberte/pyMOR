@@ -3,6 +3,7 @@ from .lrsmith import lrsmith, smithOptions
 from .base import backendLyapunov
 from .bartelsStewart import bartelsStewart
 from .sign import sign
+from .discreteBartelsStewart import discreteBartelsStewart
 
 __all__ = [
     'lradi',
@@ -11,5 +12,6 @@ __all__ = [
     'smithOptions',
     'bartelsStewart',
     'backendLyapunov',
-    'sign'
+    'sign',
+    'discreteBartelsStewart'
 ]

@@ -8,7 +8,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mor.nn.data.motorFemComponentCase import _componentTypeName, _h5py
+from mor.nn.data.motorFemMetadata import (
+    componentTypeName,
+)
+from mor.nn.data.motorFemIO import (
+    loadH5py,
+)
 from mor.nn.data.motorFullResolutionDataset import (
     _geometryClassificationTask,
     _writeJson,
@@ -37,7 +42,7 @@ def _transform(value: Any) -> tuple[Any, int]:
     instance = updated.get('componentInstance')
     oldType = updated.get('componentType')
     if isinstance(instance, str) and isinstance(oldType, str):
-        newType = _componentTypeName(instance)
+        newType = componentTypeName(instance)
         if newType != oldType:
             updated['componentType'] = newType
             changes += 1
@@ -61,7 +66,7 @@ def normalizeDataset(root: Path, *, apply: bool) -> dict[str, int]:
                 _writeJson(path, updated)
 
     changedSeries = 0
-    h5py = _h5py()
+    h5py = loadH5py()
     for path in sorted(root.rglob('series.h5')):
         mode = 'r+' if apply else 'r'
         with h5py.File(path, mode) as series:
@@ -73,7 +78,7 @@ def normalizeDataset(root: Path, *, apply: bool) -> dict[str, int]:
                 oldType = oldType.decode('utf-8')
             if not isinstance(instance, str) or not isinstance(oldType, str):
                 continue
-            newType = _componentTypeName(instance)
+            newType = componentTypeName(instance)
             if newType != oldType:
                 changedSeries += 1
                 if apply:

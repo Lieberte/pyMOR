@@ -24,10 +24,10 @@ from mor.nn.models import (
     thermalCategoryKey,
 )
 
-try:
-    from scripts.train_thermal_discrete_pinn import _caseGroup, _splitCases
-except ModuleNotFoundError:
+if __package__ in (None, ""):
     from train_thermal_discrete_pinn import _caseGroup, _splitCases
+else:
+    from scripts.train_thermal_discrete_pinn import _caseGroup, _splitCases
 
 
 def _arguments() -> argparse.Namespace:

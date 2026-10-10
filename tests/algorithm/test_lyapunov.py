@@ -3,14 +3,11 @@
 Covers:
   * lrsmith.solve must accept a ``trans`` keyword (the unified solver always
     passes one) -- it previously raised TypeError.
-  * dense + discrete auto-dispatch must raise a clear NotImplementedError --
-    it previously returned the unregistered name 'discreteHr', producing a
-    confusing "Algorithm not registered" error deep in the registry.
+  * dense + discrete auto-dispatch selects a registered and supported solver.
 
-Note: lrsmith cannot be *executed* end-to-end yet because it calls several
-backend array methods (max/ndim/reshape/...) that do not exist -- a separate,
-tracked gap. These tests therefore check the contract at the signature level.
+Also covers low-rank iteration options, residuals and backend compatibility.
 """
+import torch
 import inspect
 
 import numpy as np
@@ -27,6 +24,46 @@ class _FakeA:
     isSparse = False
 
 
+@pytest.mark.parametrize('variant', ['lradi', 'lrsmith'])
+@pytest.mark.parametrize('options, message', [
+    ({'maxIter': 0}, 'maxIter'), ({'maxIter': -1}, 'maxIter'),
+    ({'maxIter': True}, 'maxIter'), ({'maxIter': 1.5}, 'maxIter'),
+    ({'tol': np.nan}, 'tol'), ({'tol': np.inf}, 'tol'),
+    ({'tol': -1.}, 'tol'), ({'tol': True}, 'tol'),
+])
+def test_low_rank_solvers_reject_invalid_iteration_options(variant, options, message):
+    algo = algorithmRegistry.get(category='lyapunov', variant=variant, backendName='scipy', **options)
+    A = matrixOperator(-np.eye(2) if variant == 'lradi' else np.eye(2) * 0.5, 'scipy')
+    with pytest.raises(ValueError, match=message):
+        algo.solve(A, None, matrixOperator(np.ones((2, 1)), 'scipy'))
+    assert algo.lastIterations == 0
+    assert not algo.lastConverged
+
+
+@pytest.mark.parametrize('variant, options, message', [
+    ('lradi', {'compressionColumns': 0}, 'compressionColumns'),
+    ('lradi', {'shiftOptions': {'maxShifts': 0}}, 'maxShifts'),
+    ('lradi', {'shiftOptions': {'subspaceColumns': -1}}, 'subspaceColumns'),
+    ('lradi', {'shiftOptions': {'initMaxIter': True}}, 'initMaxIter'),
+    ('lrsmith', {'maxRank': 0}, 'maxRank'),
+    ('lrsmith', {'maxRank': 2.5}, 'maxRank'),
+])
+def test_low_rank_solvers_reject_invalid_column_options(variant, options, message):
+    algo = algorithmRegistry.get(category='lyapunov', variant=variant, backendName='scipy', **options)
+    with pytest.raises(ValueError, match=message):
+        algo.solve(matrixOperator(-np.eye(2), 'scipy'), None, matrixOperator(np.ones((2, 1)), 'scipy'))
+
+
+@pytest.mark.parametrize('variant', ['lradi', 'lrsmith'])
+def test_low_rank_solver_accepts_numpy_integer_budget_and_zero_tolerance(variant):
+    algo = algorithmRegistry.get(category='lyapunov', variant=variant, backendName='scipy',
+                                 maxIter=np.int64(1), tol=0.)
+    A = matrixOperator(-np.eye(2) if variant == 'lradi' else np.zeros((2, 2)), 'scipy')
+    result = algo.solve(A, None, matrixOperator(np.ones((2, 1)), 'scipy'))
+    assert algo.lastConverged
+    np.testing.assert_allclose(result.toBackendData(), np.ones((2, 2)) * (0.5 if variant == 'lradi' else 1.))
+
+
 def test_lrsmith_solve_has_trans_parameter():
     smith = algorithmRegistry.get(category='lyapunov', variant='lrsmith', backendName='scipy')
     params = inspect.signature(smith.solve).parameters
@@ -34,10 +71,9 @@ def test_lrsmith_solve_has_trans_parameter():
     assert params['trans'].default is False
 
 
-def test_dense_discrete_dispatch_raises_not_implemented():
-    """Dense discrete Lyapunov has no implementation; fail loudly instead of returning a phantom name."""
-    with pytest.raises(NotImplementedError, match='discrete'):
-        selectLyapunovAlgorithm(variant='auto', A=_FakeA(), backendName='scipy', isContinuous=False)
+def test_dense_discrete_dispatch_selects_supported_solver():
+    assert selectLyapunovAlgorithm(variant='auto', A=_FakeA(), backendName='scipy', isContinuous=False) == 'discreteBartelsStewart'
+    assert selectLyapunovAlgorithm(variant='auto', A=_FakeA(), backendName='torch', isContinuous=False) == 'lrsmith'
 
 
 def test_explicit_variant_is_passed_through():
@@ -202,6 +238,45 @@ def test_lradi_sparse_continuous_residual_and_stats():
     assert algo.lastIterations > 0
     assert len(algo.lastResidualHistory) == algo.lastIterations + 1
     assert relative_residual < 1e-8
+
+
+@pytest.mark.parametrize('backendName', ['scipy', 'torch'])
+@pytest.mark.parametrize('trans', [False, True])
+def test_lradi_shift_update_matches_projection_of_exact_factor_tail(backendName, trans):
+    from scipy.linalg import eigvals
+    from mor.algorithm.lyapunov.lradi import shiftComputationOptions
+
+    rng = np.random.default_rng(8)
+    aData = -np.diag(np.linspace(1., 8., 12))
+    aData[0, 1] = 0.25
+    eData = np.diag(np.linspace(1., 2., 12))
+    columns = [rng.normal(size=(12, count)) for count in [1, 5, 0, 2]]
+    projectedBasis = np.linalg.qr(np.hstack(columns)[:, -6:])[0]
+    expected = eigvals(projectedBasis.T @ (aData.T if trans else aData) @ projectedBasis,
+                      projectedBasis.T @ eData @ projectedBasis)
+    expected = expected[np.argsort(np.abs(expected))]
+    if backendName == 'torch':
+        aData, eData = torch.from_numpy(aData), torch.from_numpy(eData)
+        columns = [torch.from_numpy(column) for column in columns]
+    algo = algorithmRegistry.get(category='lyapunov', variant='lradi', backendName=backendName)
+    actual = algo.updateShifts(matrixOperator(aData, backendName), matrixOperator(eData, backendName),
+                              columns[-1], columns, None, shiftComputationOptions(subspaceColumns=3), trans=trans)
+    if backendName == 'torch':
+        actual = actual.numpy()
+    np.testing.assert_allclose(actual, expected, atol=1e-12)
+
+
+@pytest.mark.parametrize('converges', [False, True])
+def test_lradi_does_not_refresh_shifts_when_iteration_finishes(converges, monkeypatch):
+    A = matrixOperator(diags([-1., -1. if converges else -2.], format='csr'), 'scipy')
+    B = matrixOperator(np.ones((2, 1)), 'scipy')
+    algo = algorithmRegistry.get(category='lyapunov', variant='lradi', backendName='scipy', maxIter=1)
+    monkeypatch.setattr(algo, 'updateShifts', lambda *args, **kwargs: pytest.fail('unused shift refresh'))
+    result = algo.solve(A, None, B)
+    assert algo.lastIterations == 1
+    assert algo.lastConverged == converges
+    if converges:
+        np.testing.assert_allclose(result.toBackendData(), np.full((2, 2), 0.5))
 
 
 def test_bartels_stewart_and_sign_dense_continuous_standard_case_residuals():

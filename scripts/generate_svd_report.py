@@ -33,10 +33,7 @@ from standard_benchmark_cases import (
     singular_diagonal,
 )
 
-try:
-    import torch
-except Exception:  # pragma: no cover - optional dependency
-    torch = None
+import torch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,7 +55,7 @@ MATERIAL_RUNTIME_DELTA_MS = 0.5
 
 
 def to_numpy(data: Any) -> np.ndarray:
-    if torch is not None and isinstance(data, torch.Tensor):
+    if isinstance(data, torch.Tensor):
         return data.detach().cpu().numpy()
     return np.asarray(data)
 
@@ -109,9 +106,25 @@ class IncrementalCase:
     rank: int
 
 
+def build_sparse_cases() -> list[StaticCase]:
+    static_cases = []
+    for transpose in (False, True):
+        sparse = matrix_depot_poisson_2d(4).tocsr()[:, :8]
+        if transpose:
+            sparse = sparse.T.tocsr()
+        for rank in (3, 8):
+            static_cases.append(StaticCase(
+                name=f"matrix_depot_sparse_{'wide' if transpose else 'tall'}_rank{rank}",
+                family='sparse_poisson', problem_size=16, backend='scipy',
+                operator=matrixOperator(sparse, backendName='scipy'),
+                target=sparse.toarray(), rank=rank,
+            ))
+    return static_cases
+
+
 def build_cases() -> tuple[list[StaticCase], list[IncrementalCase]]:
     rng = np.random.default_rng(7)
-    static_cases = []
+    static_cases = build_sparse_cases()
     for n, cols in ((10, 5), (100, 10), (1000, 20), (10000, 40)):
         tall = matlab_gallery_grcar_rectangular(n, cols)
         static_cases.append(
@@ -270,13 +283,26 @@ def build_cases() -> tuple[list[StaticCase], list[IncrementalCase]]:
                 rank=m * m,
             )
         )
-    if torch is not None:
-        for n, cols, device_name in ((100, 10, "cpu"), (300, 20, "cpu"), (1000, 20, "cpu"), (3000, 40, "cpu"), (10000, 40, "cpu")):
-            torch_data = torch.randn((n, cols), dtype=torch.float64, device=device_name)
+    for n, cols, device_name in ((100, 10, "cpu"), (300, 20, "cpu"), (1000, 20, "cpu"), (3000, 40, "cpu"), (10000, 40, "cpu")):
+        torch_data = torch.randn((n, cols), dtype=torch.float64, device=device_name)
+        static_cases.append(
+            StaticCase(
+                name=f"torch_{device_name}_dense_n{n}",
+                family=f"torch_{device_name}_dense",
+                problem_size=n,
+                backend="torch",
+                operator=matrixOperator(torch_data, backendName="torch"),
+                target=to_numpy(torch_data),
+                rank=cols,
+            )
+        )
+    if torch.cuda.is_available():
+        for n, cols in ((100, 10), (300, 20), (1000, 20), (3000, 40), (10000, 40)):
+            torch_data = torch.randn((n, cols), dtype=torch.float64, device="cuda")
             static_cases.append(
                 StaticCase(
-                    name=f"torch_{device_name}_dense_n{n}",
-                    family=f"torch_{device_name}_dense",
+                    name=f"torch_cuda_dense_n{n}",
+                    family="torch_cuda_dense",
                     problem_size=n,
                     backend="torch",
                     operator=matrixOperator(torch_data, backendName="torch"),
@@ -284,20 +310,6 @@ def build_cases() -> tuple[list[StaticCase], list[IncrementalCase]]:
                     rank=cols,
                 )
             )
-        if torch.cuda.is_available():
-            for n, cols in ((100, 10), (300, 20), (1000, 20), (3000, 40), (10000, 40)):
-                torch_data = torch.randn((n, cols), dtype=torch.float64, device="cuda")
-                static_cases.append(
-                    StaticCase(
-                        name=f"torch_cuda_dense_n{n}",
-                        family="torch_cuda_dense",
-                        problem_size=n,
-                        backend="torch",
-                        operator=matrixOperator(torch_data, backendName="torch"),
-                        target=to_numpy(torch_data),
-                        rank=cols,
-                    )
-                )
 
     incremental_cases = []
     for n, rank in ((6, 3), (20, 5), (50, 8)):
@@ -337,6 +349,8 @@ def evaluate_static_case(case: StaticCase) -> dict[str, Any]:
     variants = ["static", "economic", "dual", "qrSVD"]
     if case.backend == "torch":
         variants = ["static", "economic", "dual"]
+    elif case.operator.isSparse:
+        variants = ["static", "economic", "dual"]
 
     auto_variant = selectSVDVariant(
         backendName=case.backend,
@@ -346,6 +360,10 @@ def evaluate_static_case(case: StaticCase) -> dict[str, Any]:
     )
 
     results = []
+    referenceSpectrum = np.linalg.svd(case.target, compute_uv=False)
+    scale = referenceSpectrum[0] if referenceSpectrum.size else 0.0
+    expectedError = (float(np.linalg.norm(referenceSpectrum[case.rank:] / scale) /
+                           np.linalg.norm(referenceSpectrum / scale)) if scale > 0 else 0.0)
     for variant in variants:
         try:
             samples = []
@@ -366,7 +384,7 @@ def evaluate_static_case(case: StaticCase) -> dict[str, Any]:
             elapsed_ms = statistics.median(samples)
             elapsed_std_ms = statistics.pstdev(samples) if len(samples) > 1 else 0.0
             s_np = to_numpy(S)
-            ref = top_singular_values(case.target, len(s_np))
+            ref = referenceSpectrum[:len(s_np)]
             results.append(
                 {
                     "variant": variant,
@@ -376,7 +394,7 @@ def evaluate_static_case(case: StaticCase) -> dict[str, Any]:
                     "rank": int(len(s_np)),
                     "singular_values": s_np.tolist(),
                     "reference_singular_values": ref.tolist(),
-                    "singular_value_error_l2": singular_value_error(s_np, case.target),
+                    "singular_value_error_l2": float(np.linalg.norm(s_np - ref)),
                     "reconstruction_error": reconstruction_error(U, S, Vt, case.target),
                     "relative_reconstruction_error": relative_reconstruction_error(U, S, Vt, case.target),
                     "error": "",
@@ -408,6 +426,7 @@ def evaluate_static_case(case: StaticCase) -> dict[str, Any]:
         "operator_kind": type(case.operator).__name__,
         "shape": list(case.operator.shape),
         "rank": case.rank,
+        "expected_relative_reconstruction_error": expectedError,
         "center_snapshots": case.center_snapshots,
         "auto_variant": auto_variant,
         "results": results,
@@ -464,6 +483,13 @@ def evaluate_incremental_case(case: IncrementalCase) -> dict[str, Any]:
     }
 
 
+def result_succeeded(case: dict[str, Any], result: dict[str, Any]) -> bool:
+    expected = case.get('expected_relative_reconstruction_error', 0.0)
+    actual = result.get('relative_reconstruction_error', float('inf'))
+    return bool(result.get('error', '') == '' and np.isfinite(actual)
+                and abs(actual - expected) <= max(1e-8, expected * 1e-6))
+
+
 def flatten_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for case in cases:
@@ -485,11 +511,8 @@ def flatten_rows(cases: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "singular_value_error_l2": result.get("singular_value_error_l2", float("inf")),
                     "reconstruction_error": result.get("reconstruction_error", float("inf")),
                     "relative_reconstruction_error": result.get("relative_reconstruction_error", float("inf")),
-                    "success": (
-                        result.get("error", "") == ""
-                        and np.isfinite(result.get("relative_reconstruction_error", float("inf")))
-                        and result.get("relative_reconstruction_error", float("inf")) < 1e-8
-                    ),
+                    "expected_relative_reconstruction_error": case.get('expected_relative_reconstruction_error', 0.0),
+                    "success": result_succeeded(case, result),
                     "error": result.get("error", ""),
                 }
             )
@@ -759,6 +782,7 @@ def write_visualizations(rows: list[dict[str, Any]]) -> None:
             "nearly_collinear_snapshots",
             "extreme_scaled_diagonal",
             "zero_tall_skinny",
+            "sparse_poisson",
         }
     ]
     series_runtime = []
@@ -822,9 +846,7 @@ def write_markdown(payload: dict[str, Any], rows: list[dict[str, Any]]) -> None:
             auto_counts[case["auto_variant"]] = auto_counts.get(case["auto_variant"], 0) + 1
             successful = [
                 result for result in case["results"]
-                if result.get("error", "") == ""
-                and np.isfinite(result.get("relative_reconstruction_error", float("inf")))
-                and result.get("relative_reconstruction_error", float("inf")) < 1e-8
+                if result_succeeded(case, result)
             ]
             best_errors.append(min((result["relative_reconstruction_error"] for result in successful), default=float("inf")))
         auto_summary = ", ".join(f"{variant}:{count}" for variant, count in sorted(auto_counts.items()))
@@ -851,9 +873,7 @@ def write_markdown(payload: dict[str, Any], rows: list[dict[str, Any]]) -> None:
     for case in payload["cases"]:
         successful = [
             result for result in case["results"]
-            if result.get("error", "") == ""
-            and np.isfinite(result.get("relative_reconstruction_error", float("inf")))
-            and result.get("relative_reconstruction_error", float("inf")) < 1e-8
+            if result_succeeded(case, result)
         ]
         best = min(successful or case["results"], key=lambda item: item["elapsed_ms"])
         fastest_label = "最快成功变体" if successful else "最快失败变体"
@@ -964,8 +984,8 @@ def main() -> int:
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "numpy": np.__version__,
-            "torch_available": torch is not None,
-            "torch_version": getattr(torch, "__version__", None) if torch is not None else None,
+            "torch_available": True,
+            "torch_version": torch.__version__,
         },
         "visualizations": [
             RESIDUAL_SVG_PATH.name,

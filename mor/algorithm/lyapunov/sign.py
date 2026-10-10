@@ -7,14 +7,16 @@ from .base import backendLyapunov
 
 @registerAlgorithm('lyapunov', 'sign')
 class sign(backendLyapunov):
-    # TODO: Improve numerical stability for stiff systems (e.g., hplant) by refining log-det scaling
     def solve(self, A: matrixOperator, E: matrixOperator | None, B: matrixOperator, trans: bool = False) -> Any:
+        self.validateIterationOptions()
+        self.lastIterations, self.lastFallback, self.lastRelativeResidual = 0, None, None
         backend, n = self.localBackend, A.shape[0]
         maxIter, tol = self.options.get('maxIter', 80), self.options.get('tol', 1e-14)
         aData = A.toBackendData()
         if trans:
             aData = backend.linalg.transpose(aData)
         if E is not None:
+            self.lastFallback = 'generalized_direct'
             Q = self.prepareQ(B, trans=trans)
             eData = E.toBackendData()
             if trans:
@@ -27,20 +29,21 @@ class sign(backendLyapunov):
             Zj = backend.linalg.transpose(Zj)
         if backend.array.ndim(Zj) == 1: Zj = backend.array.reshape(Zj, (-1, 1))
         if hasattr(Zj, 'to') and hasattr(Aj, 'dtype'): Zj = Zj.to(Aj.dtype)
-        eye = backend.array.eye(n, dtype=A.dtype)
+        eye = backend.array.eyeLike(Aj)
         converged = False
-        for _ in range(maxIter):
+        for iteration in range(maxIter):
+            self.lastIterations = iteration + 1
             _, logDet = backend.linalg.slogdet(Aj)
-            logGamma = logDet / n
-            logGammaAbs = float(backend.array.abs(logGamma))
-            if backend.array.isfinite(logGamma) and logGammaAbs < 30:
-                gamma = backend.array.exp(logGamma)
+            # gamma scales Aj toward unit determinant, so use the reciprocal.
+            logGamma = -float(logDet) / n
+            if math.isfinite(logGamma):
+                gamma = math.exp(max(-300.0, min(300.0, logGamma)))
             else:
                 gamma = 1.0
             try: AjInv = backend.linalg.solve(Aj, eye)
-            except Exception: break
-            c1 = backend.array.sqrt(gamma / 2.0)
-            c2 = backend.array.sqrt(1.0 / (2.0 * gamma))
+            except backend.linalg.LinAlgError: break
+            c1 = math.sqrt(gamma / 2.0)
+            c2 = math.sqrt(1.0 / (2.0 * gamma))
             Zj = backend.array.hstack([c1 * Zj, c2 * backend.linalg.solve(Aj, Zj)])
             Aj = (gamma * Aj + AjInv / gamma) / 2.0
             diff = float(backend.linalg.norm(Aj + eye)) / n
@@ -57,8 +60,10 @@ class sign(backendLyapunov):
         resNorm = float(backend.linalg.norm(residual))
         qNorm = float(backend.linalg.norm(QRef))
         relRes = resNorm / max(qNorm, 1e-16)
+        self.lastRelativeResidual = relRes
         if converged and math.isfinite(zNorm) and math.isfinite(relRes) and relRes < self.options.get('signResidualTol', 1e-6):
             return lowRankOperator(ZFactor, backendName=backend.name)
         Q = self.prepareQ(B, trans=trans)
+        self.lastFallback = 'continuous_direct'
         X = backend.linalg.solveContinuousLyapunov(aData, Q)
         return lowRankOperator(backend.linalg.robustSqrtFactor(X, name='SignFallback'), backendName=backend.name)

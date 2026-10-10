@@ -5,7 +5,6 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter
-import importlib.util
 import json
 from pathlib import Path
 
@@ -207,8 +206,7 @@ def _models(seed: int):
             ]
         ),
     }
-    if importlib.util.find_spec('xgboost') is not None:
-        models['xgboost'] = encodedXgbClassifier(randomState=seed)
+    models['xgboost'] = encodedXgbClassifier(randomState=seed)
     return models
 
 

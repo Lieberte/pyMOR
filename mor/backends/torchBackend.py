@@ -3,15 +3,71 @@ import numpy as np
 from typing import Tuple, Any
 from .backendsBase import backendBase
 from .registry import registerBackend
+from mor.runtime import resolveDeviceName
 
 @registerBackend('torch', priority=70)
 class torchBackend(backendBase):
-    def __init__(self, device: str = 'cuda'):
-        self._device = torch.device(device if torch.cuda.is_available() else 'cpu')
+    def __init__(self, device: str = 'auto'):
+        self._device = torch.device(resolveDeviceName(device))
+        self.array = torchArrayForDevice(self._device)
 
     class linalg(backendBase.linalg):
+        LinAlgError = torch.linalg.LinAlgError
+
+        @staticmethod
+        def applyDirichlet(A, rhs, indices, values):
+            index = torch.as_tensor(indices, dtype=torch.int64, device=A.device)
+            prescribed = torch.as_tensor(values, device=A.device)
+            dtype = torch.promote_types(torch.promote_types(A.dtype, rhs.dtype), prescribed.dtype)
+            if not (dtype.is_floating_point or dtype.is_complex):
+                dtype = torch.float64
+            matrix = A.to(dtype=dtype)
+            result = rhs.to(device=A.device, dtype=dtype).reshape(-1).clone()
+            prescribed = prescribed.to(dtype=dtype)
+            fixed = torch.zeros(A.shape[0], dtype=dtype, device=A.device)
+            fixed[index] = prescribed
+            result -= torchBackend.linalg.dot(matrix, fixed)
+            mask = torch.zeros(A.shape[0], dtype=torch.bool, device=A.device)
+            mask[index] = True
+            if matrix.layout != torch.strided:
+                coo = matrix.to_sparse_coo().coalesce()
+                coordinates = coo.indices()
+                keep = ~mask[coordinates[0]] & ~mask[coordinates[1]]
+                rows = torch.cat((coordinates[0, keep], index))
+                columns = torch.cat((coordinates[1, keep], index))
+                entries = torch.cat((coo.values()[keep], torch.ones(len(index), dtype=dtype, device=A.device)))
+                constrained = torchBackend.array.sparseFromTriplets(entries, rows, columns, A.shape, like=A)
+            else:
+                constrained = matrix.clone()
+                constrained[:, index] = 0
+                constrained[index, :] = 0
+                constrained[index, index] = 1
+            result[index] = prescribed
+            return constrained, result.reshape(-1, 1)
+
+        @staticmethod
+        def factorize(data):
+            if data.layout != torch.strided:
+                raise NotImplementedError('Torch reusable LU requires a dense tensor')
+            if not (data.is_floating_point() or data.is_complex()):
+                data = data.to(torch.float64)
+            factor, pivots = torch.linalg.lu_factor(data)
+            def solve(rhs):
+                vector = rhs.ndim == 1
+                values = rhs.unsqueeze(-1) if vector else rhs
+                if values.is_complex() and not factor.is_complex():
+                    result = (torch.linalg.lu_solve(factor, pivots, values.real.to(factor.dtype))
+                              + 1j * torch.linalg.lu_solve(factor, pivots, values.imag.to(factor.dtype)))
+                else:
+                    result = torch.linalg.lu_solve(factor, pivots, values.to(factor.dtype))
+                return result.squeeze(-1) if vector else result
+            solve.factorBytes = factor.numel() * factor.element_size() + pivots.numel() * pivots.element_size()
+            return solve
+
         @staticmethod
         def solve(A, b):
+            if A.layout != torch.strided:
+                raise NotImplementedError('Torch direct solve requires a dense tensor; use scipy for sparse direct solves')
             return torch.linalg.solve(A, b)
 
         @staticmethod
@@ -24,11 +80,13 @@ class torchBackend(backendBase):
 
         @staticmethod
         def qr(A, mode='reduced'):
+            if A.layout != torch.strided:
+                raise NotImplementedError('Torch QR requires a dense tensor; use scipy for bounded sparse QR conversion')
             return torch.linalg.qr(A, mode=mode)
 
         @staticmethod
         def schur(A, output='real'):
-            return torch.linalg.schur(A)
+            raise NotImplementedError('Torch has no native Schur decomposition; use the scipy backend')
 
         @staticmethod
         def norm(x, ord=None):
@@ -36,6 +94,15 @@ class torchBackend(backendBase):
 
         @staticmethod
         def dot(a, b):
+            if a.layout != torch.strided:
+                coo = a.to_sparse_coo().coalesce()
+                if b.ndim == 1:
+                    return torch.sparse.mm(coo, b.unsqueeze(1)).squeeze(1)
+                return torch.sparse.mm(coo, b)
+            if b.layout != torch.strided:
+                if a.ndim == 1:
+                    return torch.sparse.mm(b.transpose(0, 1).to_sparse_coo().coalesce(), a.unsqueeze(1)).squeeze(1)
+                return torch.sparse.mm(b.transpose(0, 1).to_sparse_coo().coalesce(), a.mT).mT
             return torch.matmul(a, b)
 
         @staticmethod
@@ -160,11 +227,13 @@ class torchBackend(backendBase):
 
         @staticmethod
         def transpose(a):
-            return a.mT
+            return a.transpose(0, 1)
 
     class decomposition(backendBase.decomposition):
         @staticmethod
         def svdDense(A, fullMatrices=False):
+            if A.layout != torch.strided:
+                raise NotImplementedError('Torch dense SVD requires an explicit dense tensor')
             origDtype = A.dtype
             if A.is_complex():
                 workDtype = torch.complex128
@@ -177,11 +246,11 @@ class torchBackend(backendBase):
 
         @staticmethod
         def svdSparse(A, k, which='LM'):
-            return torch.linalg.svd(A, full_matrices=False)
+            raise NotImplementedError('Torch truncated sparse SVD is not supported; use the scipy backend')
 
         @staticmethod
         def qrOrthogonalize(B, backend):
-            Q, _ = torch.linalg.qr(B, mode='reduced')
+            Q, _ = torchBackend.linalg.qr(B, mode='reduced')
             return Q
 
         @staticmethod
@@ -207,17 +276,71 @@ class torchBackend(backendBase):
 
     class array(backendBase.array):
         @staticmethod
+        def toArrayLike(data, like):
+            if isinstance(data, torch.Tensor):
+                return data
+            return torchBackend.array.toArray(data).to(device=like.device)
+
+        @staticmethod
+        def resultType(*values):
+            dtype = values[0]
+            for value in values[1:]:
+                dtype = (torch.promote_types(dtype, value) if isinstance(value, torch.dtype)
+                         else torch.result_type(torch.empty((), dtype=dtype), value))
+            return dtype
+
+        @staticmethod
+        def astype(data, dtype):
+            return data.to(dtype=dtype)
+
+        @staticmethod
+        def isDiagonal(data):
+            if data.ndim != 2 or data.shape[0] != data.shape[1]:
+                return False
+            if data.layout != torch.strided:
+                coo = data.to_sparse_coo().coalesce()
+                indices = coo.indices()
+                return not bool(torch.any((indices[0] != indices[1]) & (coo.values() != 0)))
+            return int(torch.count_nonzero(data)) == int(torch.count_nonzero(data.diagonal()))
+
+        @staticmethod
+        def diagonal(data):
+            if data.layout == torch.strided:
+                return data.diagonal()
+            coo = data.to_sparse_coo().coalesce()
+            indices = coo.indices()
+            mask = indices[0] == indices[1]
+            result = torch.zeros(min(data.shape), dtype=data.dtype, device=data.device)
+            return result.index_add(0, indices[0, mask], coo.values()[mask])
+
+        @staticmethod
+        def sparseFromTriplets(values, rows, columns, shape, like=None):
+            device = like.device if like is not None else (values.device if isinstance(values, torch.Tensor) else 'cpu')
+            entries = torch.as_tensor(values, device=device)
+            indices = torch.stack((torch.as_tensor(rows, dtype=torch.int64, device=device),
+                                   torch.as_tensor(columns, dtype=torch.int64, device=device)))
+            return torch.sparse_coo_tensor(indices, entries, size=shape, device=device).coalesce()
+
+        @staticmethod
+        def imag(data):
+            if not isinstance(data, torch.Tensor):
+                return getattr(data, 'imag', 0.0)
+            return data.imag if data.is_complex() else torch.zeros_like(data)
+
+        @staticmethod
         def zeros(shape, dtype=None):
-            dev = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-            return torch.zeros(shape, dtype=dtype, device=dev)
+            return torch.zeros(shape, dtype=dtype)
 
         @staticmethod
         def eye(n, dtype=None):
-            dev = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-            return torch.eye(n, dtype=dtype, device=dev)
+            return torch.eye(n, dtype=dtype)
 
         @staticmethod
         def eyeLike(a):
+            if a.layout != torch.strided:
+                indices = torch.arange(a.shape[0], device=a.device)
+                return torchBackend.array.sparseFromTriplets(
+                    torch.ones(a.shape[0], dtype=a.dtype, device=a.device), indices, indices, a.shape, like=a)
             return torch.eye(a.shape[0], dtype=a.dtype, device=a.device)
 
         @staticmethod
@@ -230,13 +353,20 @@ class torchBackend(backendBase):
 
         @staticmethod
         def toNumpy(data):
-            return data.detach().cpu().numpy()
+            data = data.detach()
+            if data.layout != torch.strided:
+                data = data.to_dense()
+            return data.resolve_conj().resolve_neg().cpu().numpy()
 
         @staticmethod
         def toArray(data):
-            if isinstance(data, torch.Tensor): return data
-            dev = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-            return torch.as_tensor(data, device=dev)
+            if isinstance(data, torch.Tensor):
+                return data
+            from scipy.sparse import issparse
+            if issparse(data):
+                coo = data.tocoo()
+                return torchBackend.array.sparseFromTriplets(coo.data, coo.row, coo.col, coo.shape)
+            return torch.as_tensor(data)
 
         @staticmethod
         def diag(v, k=0):
@@ -278,13 +408,11 @@ class torchBackend(backendBase):
 
         @staticmethod
         def array(data, dtype=None):
-            dev = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-            return torch.tensor(data, dtype=dtype, device=dev)
+            return torch.tensor(data, dtype=dtype)
 
         @staticmethod
         def randn(shape, dtype=None):
-            dev = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-            return torch.randn(shape, dtype=dtype, device=dev)
+            return torch.randn(shape, dtype=dtype)
 
         @staticmethod
         def any(data):
@@ -299,7 +427,8 @@ class torchBackend(backendBase):
         @staticmethod
         def isSparse(data):
             if not isinstance(data, torch.Tensor): return False
-            return data.is_sparse
+            return data.layout in (torch.sparse_coo, torch.sparse_csr, torch.sparse_csc,
+                                   torch.sparse_bsr, torch.sparse_bsc)
 
         @staticmethod
         def iscomplexobj(data):
@@ -307,9 +436,8 @@ class torchBackend(backendBase):
 
         @staticmethod
         def eyeSparse(n, dtype=None):
-            # TODO: Implement native sparse eye for torch
-            dev = torch.cuda.current_device() if torch.cuda.is_available() else 'cpu'
-            return torch.eye(n, dtype=dtype, device=dev).to_sparse()
+            indices = torch.arange(n)
+            return torchBackend.array.sparseFromTriplets(torch.ones(n, dtype=dtype), indices, indices, (n, n))
 
         @staticmethod
         def copy(data):
@@ -334,3 +462,41 @@ class torchBackend(backendBase):
     @property
     def arrayType(self):
         return torch.Tensor
+
+    @property
+    def deviceName(self):
+        return self._device.type
+
+
+class torchArrayForDevice(torchBackend.array):
+    def __init__(self, device):
+        self._device = torch.device(device)
+
+    def zeros(self, shape, dtype=None):
+        return torch.zeros(shape, dtype=dtype, device=self._device)
+
+    def eye(self, n, dtype=None):
+        return torch.eye(n, dtype=dtype, device=self._device)
+
+    def toArray(self, data):
+        if isinstance(data, torch.Tensor):
+            return data
+        from scipy.sparse import issparse
+        if issparse(data):
+            return torchBackend.array.toArray(data).to(self._device)
+        return torch.as_tensor(data, device=self._device)
+
+    def array(self, data, dtype=None):
+        return torch.tensor(data, dtype=dtype, device=self._device)
+
+    def randn(self, shape, dtype=None):
+        return torch.randn(shape, dtype=dtype, device=self._device)
+
+    def eyeSparse(self, n, dtype=None):
+        indices = torch.arange(n, device=self._device)
+        return self.sparseFromTriplets(torch.ones(n, dtype=dtype, device=self._device), indices, indices, (n, n))
+
+    def sparseFromTriplets(self, values, rows, columns, shape, like=None):
+        if like is None:
+            like = torch.empty(0, device=self._device)
+        return super().sparseFromTriplets(values, rows, columns, shape, like=like)

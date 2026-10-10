@@ -17,14 +17,16 @@ from .thermalComponentCase import (
     saveThermalComponentDataset,
 )
 from .motorFemComponentCase import (
-    CONVECTION_BOUNDARY_TYPE,
-    FIXED_TEMPERATURE_BOUNDARY_TYPE as MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE,
-    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
-    RESULT_HEAT_FLUX_BOUNDARY_TYPE,
     buildMotorFemComponentCase,
     buildMotorFemComponentCases,
     formatMotorFemBoundaryHeatFlowReport,
     motorFemComponentNames,
+)
+from .motorFemBoundary import (
+    CONVECTION_BOUNDARY_TYPE,
+    FIXED_TEMPERATURE_BOUNDARY_TYPE as MOTOR_FIXED_TEMPERATURE_BOUNDARY_TYPE,
+    PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
+    RESULT_HEAT_FLUX_BOUNDARY_TYPE,
 )
 from .motorStaDataset import (
     buildMotorDatasetFromSta,

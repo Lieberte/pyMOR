@@ -3,6 +3,6 @@ from dataclasses import dataclass
 @dataclass
 class runtimeSession:
     backendName: str = 'torch'
-    device: str = 'cpu'
+    device: str = 'auto'
     dtype: str = 'float32'
     seed: int | None = None

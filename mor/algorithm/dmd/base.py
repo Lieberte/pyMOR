@@ -74,6 +74,8 @@ class dmdResult:
             coordinates = self._validateSteps(steps)
             dynamics = eigenvalues[:, None] ** coordinates[None, :]
         prediction = modes @ (amplitudes[:, None] * dynamics)
+        if not np.all(np.isfinite(prediction)):
+            raise ValueError('DMD prediction overflowed or became non-finite; reduce the prediction horizon or rescale the model')
         prediction = self._realIfAppropriate(prediction, realOutput)
         return self._fromNumpy(prediction)
 

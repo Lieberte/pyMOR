@@ -10,12 +10,8 @@ class lowRankOperator(operatorBase):
         self._validate()
         if self.right is not None:
             dtype = self._resultDtype(self.left.dtype, self.right.dtype)
-            if self.backendName == 'torch':
-                self.left = self.left.to(dtype=dtype)
-                self.right = self.right.to(dtype=dtype)
-            else:
-                self.left = self.left.astype(dtype, copy=False)
-                self.right = self.right.astype(dtype, copy=False)
+            self.left = self.localBackend.array.astype(self.left, dtype)
+            self.right = self.localBackend.array.astype(self.right, dtype)
 
     def _validate(self):
         if len(self.left.shape) != 2:
@@ -67,7 +63,7 @@ class lowRankOperator(operatorBase):
 
     def apply(self, x: Any, trans: bool = False) -> Any:
         backend = self.localBackend
-        xData = self._inputData(x)
+        xData = self._inputData(x, like=self.left)
         right = self.left if self.right is None else self.right
         if trans:
             left, right = backend.linalg.conj(right), backend.linalg.conj(self.left)

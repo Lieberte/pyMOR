@@ -186,6 +186,17 @@ Preserve the operator/backend contracts already stabilized in this repository.
 - Preserve scipy sparse matrices as sparse backend data; do not accidentally convert them to object ndarrays.
 - Preserve 2D RHS/result shape for single-input solves.
 
+## Dependency Contract
+
+This repository's feature distributions and build environments provide their declared dependencies. Apply this convention when editing MOR code, backend registration, workflow capabilities, scripts, and tests:
+
+- Declare feature dependencies in `pyproject.toml` and install the matching dependency set in packaging and CI. Use direct imports when the feature is executed; let missing or broken dependencies surface as their original import errors.
+- Register shipped backends unconditionally. Retain lazy imports when they reduce startup cost, but do not gate registration or advertised methods with `find_spec`, optional-import flags, or dependency discovery.
+- Do not catch `ImportError`/`ModuleNotFoundError` to hide missing dependencies, change implementations, omit report cases/charts, mark methods unavailable, or rewrite installation errors. For repository script imports, choose the import path from invocation context instead of retrying after an import exception.
+- Required test dependencies must fail when absent rather than use `pytest.importorskip`. CI jobs must install the dependencies used by their selected tests.
+- Numerical fallback must catch the backend's specific linear-algebra errors and explicitly supported conversion/capability errors. Do not use `except Exception` around numerical probes or solves: it can hide dependency failures and programming errors. Task/report boundaries may record exceptions as explicit failures.
+- Keep hardware/platform checks, explicit CPU/CUDA selection, unsupported numerical capabilities, input validation, and evidence-backed numerical fallback. These are separate from installed-package detection. External benchmark-data skips remain valid when the data is intentionally outside the distribution.
+
 ## Code Style
 
 Avoid adding comments and docstrings by default. Prefer clear names, small helpers, and direct tests over explanatory comments. Add a comment or docstring only when the logic is non-obvious, documents an intentional numerical tradeoff, or records a boundary condition that future maintainers are likely to misread.

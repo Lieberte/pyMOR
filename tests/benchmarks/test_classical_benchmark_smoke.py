@@ -18,14 +18,11 @@ from tests.benchmarks.standard_cases import (
     matrix_depot_poisson_2d,
     singular_diagonal,
 )
-try:
-    import torch
-except Exception:  # pragma: no cover - optional dependency
-    torch = None
+import torch
 
 
 def _to_numpy(data):
-    if torch is not None and isinstance(data, torch.Tensor):
+    if isinstance(data, torch.Tensor):
         return data.detach().cpu().numpy()
     return np.asarray(data)
 
@@ -75,6 +72,52 @@ def test_svd_benchmark_smoke_collects_operator_backend_metrics(n_rows):
         assert result['elapsed_ms'] >= 0.0
         assert result['rank'] == 6
         assert result['relative_error'] < 1e-12
+
+
+@pytest.mark.benchmark
+@pytest.mark.parametrize('transpose', [False, True])
+def test_sparse_svd_benchmark_matches_dense_reference(transpose):
+    sparse = matrix_depot_poisson_2d(4).tocsr()[:, :8]
+    if transpose:
+        sparse = sparse.T.tocsr()
+    target = sparse.toarray()
+    operator = matrixOperator(sparse, backendName='scipy')
+    metrics = [_svd_metric(variant, operator, target, rank=3)
+               for variant in ('economic', 'dual')]
+    reference = np.linalg.svd(target, compute_uv=False)
+    expectedError = np.linalg.norm(reference[3:]) / np.linalg.norm(reference)
+    assert selectSVDVariant(backendName='scipy', xOperator=operator, rank=3) == 'economic'
+    for metric in metrics:
+        assert metric['elapsed_ms'] >= 0
+        assert metric['rank'] == 3
+        assert metric['relative_error'] == pytest.approx(expectedError, abs=1e-12)
+
+
+@pytest.mark.benchmark
+def test_wide_dense_svd_benchmark_matches_economic_reference():
+    target = matlab_gallery_grcar(48)[:8, :]
+    operator = matrixOperator(target, 'scipy')
+    metrics = [_svd_metric(variant, operator, target, rank=4) for variant in ('economic', 'dual')]
+    singularValues = np.linalg.svd(target, compute_uv=False)
+    expectedError = np.linalg.norm(singularValues[4:]) / np.linalg.norm(singularValues)
+    for metric in metrics:
+        assert metric['elapsed_ms'] >= 0
+        assert metric['rank'] == 4
+        assert metric['relative_error'] == pytest.approx(expectedError, abs=1e-12)
+
+
+@pytest.mark.benchmark
+def test_incremental_svd_core_records_accuracy_and_update_cost():
+    target = matlab_gallery_grcar(48)[:, :12]
+    algorithm = algorithmRegistry.get(category='svd', variant='incrementalStandard', backendName='scipy')
+    start = time.perf_counter()
+    for batch in np.hsplit(target, 3):
+        U, S, Vh = algorithm.decompose(matrixOperator(batch, 'scipy'), rank=12)
+    metric = {'elapsed_ms': (time.perf_counter() - start) * 1000,
+              'rank': len(S), 'relative_error': np.linalg.norm((U * S) @ Vh - target) / np.linalg.norm(target)}
+    assert metric['elapsed_ms'] >= 0
+    assert metric['rank'] == 12
+    assert metric['relative_error'] < 1e-12
 
 
 def _relative_lyapunov_residual(a_data, x_data, q_data):
@@ -365,7 +408,7 @@ def test_composed_operator_svd_dispatch_records_auto_vs_fastest(m):
 
 @pytest.mark.benchmark
 def test_torch_cpu_gpu_smoke_match_on_supported_svd_case():
-    if torch is None or not torch.cuda.is_available():
+    if not torch.cuda.is_available():
         pytest.skip("CUDA torch is not available")
 
     data_cpu = torch.randn((100, 10), dtype=torch.float64, device='cpu')
@@ -387,5 +430,4 @@ def test_lyapunov_dispatch_smoke_covers_top_level_auto_branches():
     assert selectLyapunovAlgorithm(variant='auto', A=dense_A, B=dense_B, backendName='scipy', isContinuous=True) == 'bartelsStewart'
     assert selectLyapunovAlgorithm(variant='auto', A=sparse_A, B=sparse_B, backendName='scipy', isContinuous=True) == 'bartelsStewart'
     assert selectLyapunovAlgorithm(variant='auto', A=discrete_A, B=matrixOperator(np.ones((3, 1)), backendName='scipy'), backendName='scipy', isContinuous=False) == 'lrsmith'
-    with pytest.raises(NotImplementedError, match='discrete'):
-        selectLyapunovAlgorithm(variant='auto', A=dense_A, B=dense_B, backendName='scipy', isContinuous=False)
+    assert selectLyapunovAlgorithm(variant='auto', A=dense_A, B=dense_B, backendName='scipy', isContinuous=False) == 'discreteBartelsStewart'

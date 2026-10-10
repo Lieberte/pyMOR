@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import pytest
 
@@ -175,7 +176,6 @@ def test_exact_dmd_accepts_composed_snapshot_operator():
 
 
 def test_exact_dmd_torch_preserves_device_and_complex_dtype():
-    torch = pytest.importorskip('torch')
     angle = 0.2
     dynamics = torch.tensor(
         [[np.cos(angle), -np.sin(angle)], [np.sin(angle), np.cos(angle)]],
@@ -198,7 +198,6 @@ def test_exact_dmd_torch_preserves_device_and_complex_dtype():
 
 
 def test_torch_svd_preserves_complex_snapshot_information():
-    torch = pytest.importorskip('torch')
     snapshots = torch.tensor(
         [[1.0 + 0.2j, 0.8 + 0.1j, 0.6 - 0.1j], [0.3j, 0.2 + 0.4j, -0.1 + 0.2j]],
         dtype=torch.complex128,
@@ -211,7 +210,6 @@ def test_torch_svd_preserves_complex_snapshot_information():
 
 
 def test_exact_dmd_torch_float32_reconstruction_preserves_dtype():
-    torch = pytest.importorskip('torch')
     snapshots = torch.tensor([[1.0, 0.9, 0.81, 0.729]], dtype=torch.float32)
 
     result = exactDMD('torch').fit(matrixOperator(snapshots, 'torch'))

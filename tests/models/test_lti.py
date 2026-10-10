@@ -1,3 +1,4 @@
+import torch
 import numpy as np
 import pytest
 
@@ -46,7 +47,6 @@ def test_lti_model_records_discrete_time_domain():
 
 
 def test_lti_model_rejects_mixed_backends():
-    pytest.importorskip('torch')
     A = matrixOperator(-np.eye(3), backendName='scipy')
     B = matrixOperator(np.ones((3, 1)), backendName='torch')
     C = matrixOperator(np.ones((1, 3)), backendName='scipy')

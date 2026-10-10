@@ -39,12 +39,12 @@ class thermalCategorizedPredictor:
         self,
         checkpoint: Mapping[str, Any],
         *,
-        device: str = 'cuda',
+        device: str = 'auto',
     ):
         self.checkpoint = dict(checkpoint)
         self.dataContract = thermalCheckpointDataContract.fromCheckpoint(checkpoint)
         self.model = thermalCategorizedOperatorTorch.fromCheckpoint(checkpoint)
-        self.device = self.model.toDevice(device, allowAutoFallback=True)
+        self.device = self.model.toDevice(device, allowAutoFallback=False)
         self.model.eval()
 
     @classmethod
@@ -52,7 +52,7 @@ class thermalCategorizedPredictor:
         cls,
         checkpoint: Mapping[str, Any] | str | PathLike[str],
         *,
-        device: str = 'cuda',
+        device: str = 'auto',
     ) -> 'thermalCategorizedPredictor':
         payload = (
             torch.load(Path(checkpoint), map_location='cpu', weights_only=False)

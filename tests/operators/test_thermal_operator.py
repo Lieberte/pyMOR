@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from scipy.sparse import csr_matrix, issparse
 
 from mor.operators import (
@@ -15,6 +16,29 @@ def unitTetra():
     )
     elements = np.array([[0, 1, 2, 3]], dtype=int)
     return nodes, elements
+
+
+@pytest.mark.parametrize('capacityMode', ['consistent', 'lumped'])
+@pytest.mark.parametrize('batchSize', [1, 3, 9])
+def test_multibatch_assembly_matches_independent_element_sum(capacityMode, batchSize):
+    nodes = np.array([[0., 0., 0.], [1., 0., 0.], [0., 1., 0.], [0., 0., 1.], [1., 1., 1.]])
+    elements = np.array([[0, 1, 2, 3], [1, 2, 3, 4]] * 5)
+    count = len(elements)
+    conductivity = np.arange(1., count + 1)
+    heat = np.linspace(0.1, 1., count)
+    actual = assembleLinearTetraThermalOperators(nodes, elements, conductivity=conductivity,
+        heatSource=heat, capacityMode=capacityMode, assemblyBatchSize=batchSize)
+    k, m, q = np.zeros((5, 5)), np.zeros((5, 5)), np.zeros((5, 1))
+    for index, element in enumerate(elements):
+        result = assembleLinearTetraThermalOperators(nodes, element[None], conductivity=conductivity[index],
+            heatSource=heat[index], capacityMode=capacityMode)
+        k += result.K.toNumpy()
+        m += result.M.toNumpy()
+        q += result.Q.toNumpy()
+    np.testing.assert_allclose(actual.K.toNumpy(), k, atol=1e-13)
+    np.testing.assert_allclose(actual.M.toNumpy(), m, atol=1e-13)
+    np.testing.assert_allclose(actual.Q.toNumpy(), q, atol=1e-13)
+    np.testing.assert_allclose(actual.K.toNumpy().sum(axis=1), 0., atol=1e-13)
 
 
 def test_linear_tetra_thermal_volume_operators():

@@ -30,11 +30,12 @@ class thermalOperatorTrainerTorch(baseTrainer):
         self,
         lossFunction: Any,
         *,
+        config: Any | None = None,
         epochs: int = 100,
         learningRate: float = 1e-3,
         weightDecay: float = 0.0,
         gradientClip: float | None = 1.0,
-        deviceName: str = 'cpu',
+        deviceName: str | None = None,
         physicsInValidation: bool = True,
         **kwargs,
     ):
@@ -44,7 +45,12 @@ class thermalOperatorTrainerTorch(baseTrainer):
         self.learningRate = float(learningRate)
         self.weightDecay = float(weightDecay)
         self.gradientClip = None if gradientClip is None else float(gradientClip)
-        self.deviceName = str(deviceName)
+        configuredDeviceName = (
+            getattr(getattr(config, 'runtime', None), 'deviceName', 'auto')
+            if deviceName is None
+            else deviceName
+        )
+        self.deviceName = str(configuredDeviceName)
         self.physicsInValidation = bool(physicsInValidation)
         if self.epochs <= 0 or self.learningRate <= 0.0 or self.weightDecay < 0.0:
             raise ValueError('invalid thermal operator trainer options')
@@ -106,7 +112,7 @@ class thermalOperatorTrainerTorch(baseTrainer):
         return totalLoss / max(batchCount, 1)
 
     def fit(self, model, dataModule) -> dict[str, Any]:
-        device = model.toDevice(self.deviceName, allowAutoFallback=True)
+        device = model.toDevice(self.deviceName, allowAutoFallback=False)
         optimizer = torch.optim.AdamW(
             model.parameters(),
             lr=self.learningRate,

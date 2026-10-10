@@ -9,11 +9,16 @@ def truncate(S: Any, rank: int | None = None, tol: float | None = None, backend:
     if tol is not None:
         if not isinstance(tol, Real) or isinstance(tol, bool) or not 0 <= tol <= 1:
             raise ValueError("tol must be a real number between 0 and 1.")
-        s2 = S**2
+        if backend.array.size(S) == 0:
+            return 0
+        scale = backend.array.max(backend.array.abs(S))
+        if float(scale) == 0:
+            return 0
+        s2 = (S / scale)**2
         totalEnergy = backend.array.sum(s2)
         if float(totalEnergy) == 0:
             return 0
-        energy = backend.array.cumsum(s2) / totalEnergy
+        energy = backend.array.cumsum(s2, axis=0) / totalEnergy
         # Find first index where energy >= (1 - tol)
         # Note: energy is 1-indexed for rank
         mask = energy >= (1.0 - tol)

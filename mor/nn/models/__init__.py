@@ -8,6 +8,7 @@ from .lstmDynamicsTorch import lstmDynamicsTorch
 from .gruDynamicsTorch import gruDynamicsTorch
 from .transformerDynamicsTorch import transformerDynamicsTorch
 from .ssmDynamicsTorch import ssmDynamicsTorch
+from .mambaDynamicsTorch import mambaDynamicsTorch
 from .heatSteadyStateTorch import heatSteadyStateTorch
 from . import pinn
 from . import operator
@@ -35,6 +36,7 @@ __all__ = [
     'gruDynamicsTorch',
     'transformerDynamicsTorch',
     'ssmDynamicsTorch',
+    'mambaDynamicsTorch',
     'heatSteadyStateTorch',
     'pinn',
     'operator',

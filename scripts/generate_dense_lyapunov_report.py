@@ -20,10 +20,7 @@ from report_svg_utils import write_bar_chart_svg, write_line_chart_svg, write_su
 from report_run_utils import reset_report_dir, write_case_manifest
 from standard_benchmark_cases import ill_conditioned_diagonal, matlab_gallery_grcar, matlab_gallery_hilbert
 
-try:
-    import torch
-except Exception:  # pragma: no cover - optional dependency
-    torch = None
+import torch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -70,17 +67,16 @@ def build_cases() -> list[DenseLyapunovCase]:
         DenseLyapunovCase("matlab_gallery_grcar_100_scipy", "grcar_dense", 100, stable_grcar(100), np.ones((100, 2))),
         DenseLyapunovCase("matlab_gallery_hilbert_10_scipy", "hilbert_dense", 10, stable_hilbert(10), np.ones((10, 1))),
     ]
-    if torch is not None:
-        for n, device_name in ((10, "cpu"), (100, "cpu"), (1000, "cpu")):
-            cases.append(DenseLyapunovCase(f"torch_{device_name}_diagonal_{n}", f"torch_{device_name}_diagonal", n, stable_diagonal(n), np.ones((n, 1)), backend="torch"))
-        if torch.cuda.is_available():
-            for n in (10, 100, 1000):
-                cases.append(DenseLyapunovCase(f"torch_cuda_diagonal_{n}", "torch_cuda_diagonal", n, stable_diagonal(n), np.ones((n, 1)), backend="torch"))
+    for n, device_name in ((10, "cpu"), (100, "cpu"), (1000, "cpu")):
+        cases.append(DenseLyapunovCase(f"torch_{device_name}_diagonal_{n}", f"torch_{device_name}_diagonal", n, stable_diagonal(n), np.ones((n, 1)), backend="torch"))
+    if torch.cuda.is_available():
+        for n in (10, 100, 1000):
+            cases.append(DenseLyapunovCase(f"torch_cuda_diagonal_{n}", "torch_cuda_diagonal", n, stable_diagonal(n), np.ones((n, 1)), backend="torch"))
     return cases
 
 
 def to_numpy(data: Any) -> np.ndarray:
-    if torch is not None and isinstance(data, torch.Tensor):
+    if isinstance(data, torch.Tensor):
         return data.detach().cpu().numpy()
     return np.asarray(data)
 
@@ -276,8 +272,8 @@ def main() -> int:
             "python": sys.version.split()[0],
             "platform": platform.platform(),
             "numpy": np.__version__,
-            "torch_available": torch is not None,
-            "torch_version": getattr(torch, "__version__", None) if torch is not None else None,
+            "torch_available": True,
+            "torch_version": torch.__version__,
         },
         "visualizations": [
             RESIDUAL_SVG_PATH.name,

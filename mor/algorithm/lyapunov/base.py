@@ -1,10 +1,24 @@
 from typing import Any
+from math import isfinite
+from numbers import Integral, Real
 from mor.operators import matrixOperator
 from mor.backends import backendRegistry
 
 class backendLyapunov:
     def __init__(self, backendName: str | None = None, **kwargs):
         self.localBackend, self.options = backendRegistry.get(backendName), kwargs
+
+    def validateIterationOptions(self):
+        maxIter = self.options.get('maxIter', 500)
+        tol = self.options.get('tol', 1e-10)
+        if not isinstance(maxIter, Integral) or isinstance(maxIter, bool) or maxIter <= 0:
+            raise ValueError('maxIter must be a positive integer')
+        if not isinstance(tol, Real) or isinstance(tol, bool) or not isfinite(tol) or tol < 0:
+            raise ValueError('tol must be a finite non-negative real number')
+
+    def validateColumnOption(self, name, value):
+        if not isinstance(value, Integral) or isinstance(value, bool) or value <= 0:
+            raise ValueError(f'{name} must be a positive integer')
 
     def prepareQ(self, B: matrixOperator, trans: bool = False):
         backend, bData = self.localBackend, B.toBackendData()

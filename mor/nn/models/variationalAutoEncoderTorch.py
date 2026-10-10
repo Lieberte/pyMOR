@@ -40,7 +40,7 @@ class variationalAutoEncoderTorch(torchModelBase):
 
     def forward(self, inputs: Any) -> tuple[Any, Any, Any]:
         mu, logVar = self.encode(inputs)
-        z = self.reparameterize(mu, logVar)
+        z = self.reparameterize(mu, logVar) if self.training else mu
         return self.decode(z), mu, logVar
 
 nnRegistry.register('models', 'variationalAutoEncoderTorch', variationalAutoEncoderTorch)

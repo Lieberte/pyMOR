@@ -8,14 +8,16 @@ from typing import Any, Mapping, Sequence
 
 import numpy as np
 
-from .motorFemComponentCase import (
+from .motorFemGeometry import (
+    matchIntegratedPower,
+    sampleByGroupWithConservedWeight,
+    sampleWithConservedWeight,
+)
+from .motorFemBoundary import (
     CONVECTION_BOUNDARY_TYPE,
     FIXED_TEMPERATURE_BOUNDARY_TYPE,
     PRESCRIBED_HEAT_FLUX_BOUNDARY_TYPE,
     RESULT_HEAT_FLUX_BOUNDARY_TYPE,
-    _matchIntegratedPower,
-    _sampleByGroupWithConservedWeight,
-    _sampleWithConservedWeight,
 )
 from .motorWholeDataset import (
     WHOLE_MOTOR_FORMAT_VERSION,
@@ -382,16 +384,16 @@ def subsampleThermalComponentCase(
     maximumQuerySamples: int | None = None,
     randomSeed: int = 0,
 ) -> thermalComponentCase:
-    volumeSelection, volumeWeights = _sampleWithConservedWeight(
+    volumeSelection, volumeWeights = sampleWithConservedWeight(
         case.volume.weightsM3, maximumVolumeSamples, randomSeed
     )
     volumeHeatSource = case.volume.heatSourceWPerM3[volumeSelection].copy()
-    _matchIntegratedPower(
+    matchIntegratedPower(
         volumeHeatSource,
         volumeWeights,
         case.volume.totalHeatSourcePowerW,
     )
-    boundarySelection, boundaryWeights = _sampleByGroupWithConservedWeight(
+    boundarySelection, boundaryWeights = sampleByGroupWithConservedWeight(
         case.boundary.weightsM2,
         case.boundary.patchIds,
         maximumBoundarySamples,
@@ -404,7 +406,7 @@ def subsampleThermalComponentCase(
         selectedMask = selectedPatchIds == patchId
         selectedPositions = np.flatnonzero(selectedMask)
         selectedHeatFlux = boundaryHeatFlux[selectedPositions].copy()
-        _matchIntegratedPower(
+        matchIntegratedPower(
             selectedHeatFlux,
             boundaryWeights[selectedPositions],
             float(
@@ -415,7 +417,7 @@ def subsampleThermalComponentCase(
             ),
         )
         boundaryHeatFlux[selectedPositions] = selectedHeatFlux
-    querySelection, queryWeights = _sampleWithConservedWeight(
+    querySelection, queryWeights = sampleWithConservedWeight(
         case.temperature.weightsM3, maximumQuerySamples, randomSeed + 2
     )
     return replace(

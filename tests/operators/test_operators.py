@@ -2,6 +2,7 @@
 (they implement the abstract toBackendData) and lowRankOperator.apply must work
 (it previously referenced an un-imported ``matrixOperator`` -> NameError).
 """
+import torch
 import numpy as np
 import pytest
 from scipy.sparse import diags, issparse
@@ -58,6 +59,42 @@ def test_matrix_operator_metadata_detects_diagonal_dense_and_sparse():
     assert dense.metadata['materializationCost'] == 9
 
 
+@pytest.mark.parametrize('scale', [1., 1e-10, 1e-100])
+def test_diagonal_metadata_preserves_small_off_diagonal_entries(scale):
+    data = np.array([[scale, scale / 10], [0., scale]])
+    operator = matrixOperator(data, backendName='scipy')
+    assert not operator.isDiagonal
+    assert 'diagonal' not in operator.metadata['structureTags']
+    with pytest.raises(ValueError, match='not diagonal'):
+        operator.diagonal()
+
+
+def test_diagonal_detection_is_lazy_and_cached(monkeypatch):
+    calls = []
+    original = matrixOperator._detectDiagonal
+
+    def detect(operator):
+        calls.append(operator)
+        return original(operator)
+
+    monkeypatch.setattr(matrixOperator, '_detectDiagonal', detect)
+    operator = matrixOperator(np.eye(3), backendName='scipy')
+    transposed = operator.T
+    scaled = operator * 2
+    assert calls == []
+    assert operator.isDiagonal
+    assert operator.metadata['isDiagonal']
+    assert calls == [operator]
+    assert transposed.isDiagonal
+    assert scaled.isDiagonal
+
+
+def test_dense_diagonal_detection_does_not_build_diagonal_matrix(monkeypatch):
+    operator = matrixOperator(np.eye(4, dtype=np.complex128), backendName='scipy')
+    monkeypatch.setattr(np, 'diag', lambda *args, **kwargs: pytest.fail('allocated diagonal matrix'))
+    assert operator.isDiagonal
+
+
 def test_low_rank_apply_matches_dense(rng):
     """lowRankOperator.apply previously raised NameError on every call."""
     L = rng.standard_normal((6, 2))
@@ -83,7 +120,6 @@ def test_low_rank_apply_accepts_matrix_operator_input(rng):
     lambda: matrixOperator(np.eye(2), backendName='scipy') + matrixOperator(np.eye(2), backendName='scipy'),
 ])
 def test_operator_apply_rejects_input_operator_from_another_backend(operator_factory):
-    torch = pytest.importorskip('torch')
     operator = operator_factory()
     x = matrixOperator(torch.ones((2, 1)), backendName='torch')
 
@@ -142,7 +178,6 @@ def test_low_rank_transpose_apply_does_not_construct_temporary_operator(monkeypa
 
 
 def test_torch_complex_low_rank_uses_adjoint_and_promoted_dtype():
-    torch = pytest.importorskip('torch')
     left = torch.tensor([[1.0 + 2.0j], [3.0 - 1.0j]], dtype=torch.complex64)
     right = torch.tensor([[2.0 - 1.0j], [1.0 + 4.0j], [0.5 + 0.0j]], dtype=torch.complex128)
     op = lowRankOperator(left, right, backendName='torch')
@@ -201,7 +236,6 @@ def test_scipy_composed_operator_dtype_matches_promoted_data():
 
 
 def test_torch_composed_operator_dtype_matches_promoted_data():
-    torch = pytest.importorskip('torch')
     float32 = matrixOperator(torch.eye(2, dtype=torch.float32), backendName='torch')
     float64 = matrixOperator(torch.eye(2, dtype=torch.float64), backendName='torch')
 

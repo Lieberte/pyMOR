@@ -13,13 +13,19 @@ from zipfile import ZipFile
 import h5py
 import numpy as np
 
-from mor.nn.data.motorFemComponentCase import (
-    _boundaryNodeGeometry,
-    _fixedHeatSourceValue,
-    _normalizedComponentName,
-    _regionName,
-    _resolveFemSystem,
-    _surfacePatchSamples,
+from mor.nn.data.motorFemMetadata import (
+    normalizedComponentName,
+    regionName,
+    resolveFemSystem,
+)
+from mor.nn.data.motorFemGeometry import (
+    boundaryNodeGeometry,
+)
+from mor.nn.data.motorFemBoundary import (
+    surfacePatchSamples,
+)
+from mor.nn.data.motorFemIO import (
+    fixedHeatSourceValue,
 )
 from mor.nn.data.motorStaDataset import inspectMotorStaArchive
 
@@ -64,7 +70,7 @@ def _configured_source_power(mesh: h5py.File, region: dict[str, Any]) -> float:
     tetrahedra: np.ndarray | None = None
     for volume_patch in region.get("volumePatches", {}).values():
         for child_uuid, group in volume_patch.get("children", {}).items():
-            source = _fixedHeatSourceValue(group)
+            source = fixedHeatSourceValue(group)
             if source is None:
                 continue
             input_variable, value = source
@@ -163,7 +169,7 @@ def _component_record(
 
     nodes = np.asarray(mesh["nodes"], dtype=np.float64).reshape(-1, 3)
     surface = _connectivity(mesh["connectivitySurface"], 3, "connectivitySurface")
-    boundary_nodes, _, boundary_node_areas = _boundaryNodeGeometry(
+    boundary_nodes, _, boundary_node_areas = boundaryNodeGeometry(
         nodes, surface, nodes.mean(axis=0)
     )
     nodal_heat_flow = np.asarray(result[heat_flow_path], dtype=np.float64).reshape(-1)
@@ -175,7 +181,7 @@ def _component_record(
     boundary_values = nodal_heat_flow[boundary_nodes]
     raw_boundary_power = float(boundary_values.sum())
     boundary_throughput = float(np.abs(boundary_values).sum())
-    patch_source_nodes, _, patch_weights, patch_ids, patch_metadata = _surfacePatchSamples(
+    patch_source_nodes, _, patch_weights, patch_ids, patch_metadata = surfacePatchSamples(
         mesh, region, nodes, surface, nodes.mean(axis=0)
     )
     nodal_areas = np.zeros(node_count, dtype=np.float64)
@@ -236,7 +242,7 @@ def _component_record(
     return {
         "sourceSta": str(source),
         "sourceFile": source.name,
-        "component": _normalizedComponentName(_regionName(region)),
+        "component": normalizedComponentName(regionName(region)),
         "regionUuid": region_uuid,
         "configuredHeatSourcePowerW": source_power,
         "rawNodalBoundaryHeatFlowRateW": raw_boundary_power,
@@ -294,7 +300,7 @@ def _audit_archive(
     component_errors: list[dict[str, str]] = []
     with ZipFile(source) as archive:
         control = json.loads(archive.read("controlData.json").decode("utf-8-sig"))
-        system_uuid, system, schema = _resolveFemSystem(control)
+        system_uuid, system, schema = resolveFemSystem(control)
         regions = system.get("femRegions", {})
         with tempfile.TemporaryDirectory(prefix="sta-energy-audit-") as directory:
             temporary = Path(directory)
@@ -331,7 +337,7 @@ def _audit_archive(
                     except Exception as error:
                         component_errors.append(
                             {
-                                "component": _normalizedComponentName(_regionName(region)),
+                                "component": normalizedComponentName(regionName(region)),
                                 "error": f"{type(error).__name__}: {error}",
                             }
                         )

@@ -1,4 +1,5 @@
 import torch
+from numbers import Integral
 from typing import Any
 from mor.nn.trainers.baseTrainer import baseTrainer
 from mor.nn.registry import nnRegistry
@@ -8,12 +9,47 @@ class autoEncoderTrainerTorch(baseTrainer):
         super().__init__(trainerName='autoEncoderTrainerTorch', **kwargs)
         self.lossFunction, self.config, self._initOverrides = lossFunction, config, dict(kwargs)
         self.epochs = self._read('epochs', 100)
+        self._validateEpochs()
         self.opt = self._loadOptimizerConfig()
         self.sched = self._loadSchedulerConfig()
         self.run = self._loadRuntimeConfig()
         self.early = self._loadEarlyStoppingConfig()
         self.ckpt = self._loadCheckpointConfig()
         self.log = self._loadLoggingConfig()
+        self._validateSettings()
+
+    def _validateSettings(self):
+        import math
+        from numbers import Real
+        for name, value in [('logInterval', self.log['interval']), ('stepSize', self.sched['stepSize']), ('tMax', self.sched['tMax'])]:
+            if not isinstance(value, Integral) or isinstance(value, bool) or value <= 0:
+                raise ValueError(f'{name} must be a positive integer')
+        if self.sched['name'] not in ('none', 'step', 'multistep', 'cosine'):
+            raise ValueError(f"Unsupported scheduler: {self.sched['name']}")
+        for name, value in [('gamma', self.sched['gamma']), ('etaMin', self.sched['etaMin'])]:
+            if not isinstance(value, Real) or isinstance(value, bool) or not math.isfinite(value) or value < 0:
+                raise ValueError(f'{name} must be finite and non-negative')
+        if any(not isinstance(value, Integral) or isinstance(value, bool) or value < 0 for value in self.sched['milestones']):
+            raise ValueError('milestones must contain non-negative integers')
+        if self.run['dtype'] not in ('float16', 'bfloat16', 'float32', 'float64'):
+            raise ValueError(f"Unsupported dtype: {self.run['dtype']}")
+        for settings in (self.early, self.ckpt):
+            if settings['metric'] not in ('validationLoss', 'trainLoss') or settings['mode'] not in ('min', 'max'):
+                raise ValueError('monitor metric must be validationLoss/trainLoss and mode must be min/max')
+
+    def _validateEpochs(self):
+        if not isinstance(self.epochs, Integral) or isinstance(self.epochs, bool) or self.epochs <= 0:
+            raise ValueError('epochs must be a positive integer')
+
+    def _validateLoader(self, loader: Any, partition: str):
+        if loader is None:
+            return
+        try:
+            batchCount = len(loader)
+        except TypeError:
+            return
+        if batchCount == 0:
+            raise ValueError(f'{partition} loader is empty; check sample count, batchSize and dropLast')
 
     def _read(self, path: str, default: Any, overrideKey: str | None = None) -> Any:
         key = overrideKey or path.split('.')[-1]
@@ -42,7 +78,7 @@ class autoEncoderTrainerTorch(baseTrainer):
         return {'name': self._read('scheduler.schedulerName', 'none').lower(), 'stepSize': self._read('scheduler.stepSize', 10), 'gamma': self._read('scheduler.gamma', 0.1), 'milestones': self._read('scheduler.milestones', []), 'tMax': self._read('scheduler.tMax', 100), 'etaMin': self._read('scheduler.etaMin', 0.0)}
 
     def _loadRuntimeConfig(self) -> dict:
-        return {'device': self._read('runtime.deviceName', 'cpu', 'deviceName'), 'fallback': self._read('runtime.deviceAutoFallback', True), 'dtype': self._read('runtime.dtypeName', 'float32')}
+        return {'device': self._read('runtime.deviceName', 'auto', 'deviceName'), 'fallback': self._read('runtime.deviceAutoFallback', False), 'dtype': self._read('runtime.dtypeName', 'float32')}
 
     def _loadEarlyStoppingConfig(self) -> dict:
         return {'enabled': self._read('earlyStopping.enabled', False, 'earlyStoppingEnabled'), 'patience': self._read('earlyStopping.patience', 10, 'earlyStoppingPatience'), 'delta': self._read('earlyStopping.delta', 0.0, 'earlyStoppingDelta'), 'metric': self._read('earlyStopping.monitorMetric', 'validationLoss'), 'mode': self._read('earlyStopping.modeName', 'min').lower(), 'warmup': self._read('earlyStopping.warmupEpochs', 0)}
@@ -64,36 +100,52 @@ class autoEncoderTrainerTorch(baseTrainer):
         if name == 'step': return torch.optim.lr_scheduler.StepLR(optimizer, step_size=self.sched['stepSize'], gamma=self.sched['gamma'])
         if name == 'multistep': return torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=self.sched['milestones'] or [self.sched['stepSize']], gamma=self.sched['gamma'])
         if name == 'cosine': return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=self.sched['tMax'], eta_min=self.sched['etaMin'])
-        return None
+        raise ValueError(f'Unsupported scheduler: {name}')
 
     def _resolveDtype(self) -> torch.dtype:
         return {'float64': torch.float64, 'float16': torch.float16, 'bfloat16': torch.bfloat16}.get(self.run['dtype'], torch.float32)
 
     def _toRuntimeTensor(self, data: Any, device: str, dtype: torch.dtype) -> torch.Tensor:
-        return (data if isinstance(data, torch.Tensor) else torch.as_tensor(data)).to(device=device, dtype=dtype)
+        return (data if isinstance(data, torch.Tensor) else torch.as_tensor(data)).to(device=device, dtype=dtype, non_blocking=True)
 
     def _runBatch(self, model: Any, inputs: Any, targets: Any, device: str, dtype: torch.dtype, optimizer: Any | None = None) -> float:
+        return float(self._batchLoss(model, inputs, targets, device, dtype, optimizer).item())
+
+    def _batchLoss(self, model: Any, inputs: Any, targets: Any, device: str, dtype: torch.dtype,
+                   optimizer: Any | None = None) -> torch.Tensor:
         inputs, targets = self._toRuntimeTensor(inputs, device, dtype), self._toRuntimeTensor(targets, device, dtype)
-        if optimizer: optimizer.zero_grad()
+        if optimizer: optimizer.zero_grad(set_to_none=True)
         preds = model.forward(inputs)
         loss = self.lossFunction.compute(preds, targets)
         if optimizer:
             loss.backward()
             if self.opt['clip']: torch.nn.utils.clip_grad_norm_(model.parameters(), self.opt['clip'])
             optimizer.step()
-        return float(loss.item())
+        return loss
 
     def _runEpoch(self, model: Any, loader: Any, dataModule: Any, device: str, dtype: torch.dtype, optimizer: Any | None = None, globalStep: int = 0) -> tuple[float, int]:
+        partition = 'training' if optimizer is not None else 'validation'
+        self._validateLoader(loader, partition)
         if optimizer: model.trainMode()
         else: model.evalMode()
-        if loader:
-            losses = []
+        if loader is not None:
+            accumulateOnDevice = torch.device(device).type == 'cuda'
+            totalLoss = torch.zeros((), device=device, dtype=torch.float64) if accumulateOnDevice else 0.0
+            sampleCount = 0
             for x, y in loader:
-                losses.append(self._runBatch(model, x, y, device, dtype, optimizer))
+                batchSize = len(x)
+                if accumulateOnDevice:
+                    totalLoss += self._batchLoss(model, x, y, device, dtype, optimizer).detach().to(torch.float64) * batchSize
+                else:
+                    totalLoss += self._runBatch(model, x, y, device, dtype, optimizer) * batchSize
+                sampleCount += batchSize
                 if optimizer:
                     globalStep += 1
                     if hasattr(model, 'updateTrainingState'): model.updateTrainingState(currentStep=globalStep)
-            return sum(losses) / max(len(losses), 1), globalStep
+            if sampleCount == 0:
+                raise ValueError(f'{partition} loader is empty; check sample count, batchSize and dropLast')
+            averageLoss = totalLoss / sampleCount
+            return (float(averageLoss.item()) if accumulateOnDevice else averageLoss), globalStep
         x, y = dataModule.getTrainData() if optimizer else dataModule.getValidationData()
         loss = self._runBatch(model, x, y, device, dtype, optimizer)
         if optimizer:
@@ -102,10 +154,15 @@ class autoEncoderTrainerTorch(baseTrainer):
         return loss, globalStep
 
     def fit(self, model: Any, dataModule: Any) -> dict:
-        device = model.toDevice(self.run['device'], allowAutoFallback=self.run['fallback']) if hasattr(model, 'toDevice') else self.run['device']
-        dtype, optimizer = self._resolveDtype(), self._buildOptimizer(model)
-        scheduler, globalStep = self._buildScheduler(optimizer), 0
+        self._validateEpochs()
         trainLoader, valLoader = dataModule.getTrainLoader(), dataModule.getValidationLoader()
+        self._validateLoader(trainLoader, 'training')
+        self._validateLoader(valLoader, 'validation')
+        device = model.toDevice(self.run['device'], allowAutoFallback=self.run['fallback']) if hasattr(model, 'toDevice') else self.run['device']
+        dtype = self._resolveDtype()
+        model.to(dtype=dtype)
+        optimizer = self._buildOptimizer(model)
+        scheduler, globalStep = self._buildScheduler(optimizer), 0
         history = {'train': [], 'val': [], 'lr': []}
         best = {'val': None, 'epoch': None, 'state': None}
         es = {'best': None, 'patience': 0}
@@ -125,8 +182,8 @@ class autoEncoderTrainerTorch(baseTrainer):
             if self._isBetter(esMetric, es['best'], self.early['delta'], self.early['mode']): es.update({'best': esMetric, 'patience': 0})
             elif epoch >= self.early['warmup']: es['patience'] += 1
             if self.early['enabled'] and es['patience'] >= self.early['patience']: break
-        if best['state'] and self.ckpt['saveBest']: model.loadState(best['state'])
         lastState = model.saveState(toCpu=True) if self.ckpt['saveLast'] else None
+        if best['state'] and self.ckpt['saveBest']: model.loadState(best['state'])
         if hasattr(model, 'updateTrainingState'): model.updateTrainingState(currentEpoch=epoch, currentStep=globalStep, isTraining=False)
         return {'trainLossHistory': history['train'], 'validationLossHistory': history['val'], 'learningRateHistory': history['lr'], 'bestMetricValue': best['val'], 'bestEpochIndex': best['epoch'], 'bestModelState': best['state'], 'lastModelState': lastState, 'resolvedDeviceName': device, 'totalSteps': globalStep}
 
@@ -137,6 +194,9 @@ class autoEncoderTrainerTorch(baseTrainer):
     def _logEpoch(self, epoch: int, trainLoss: float, valLoss: float, lr: float):
         if not self.log['verbose']: return
         if (epoch + 1) % self.log['interval'] == 0 or epoch == 0 or epoch + 1 == self.epochs:
-            print(f"epoch={epoch+1}/{self.epochs} | lr={lr:.6g} | train={trainLoss:.6g} | val={valLoss:.6g}")
+            fields = [f"epoch={epoch+1}/{self.epochs}", f"lr={lr:.6g}"]
+            if self.log['reportTrain']: fields.append(f"train={trainLoss:.6g}")
+            if self.log['reportVal']: fields.append(f"val={valLoss:.6g}")
+            print(' | '.join(fields))
 
 nnRegistry.register('trainers', 'autoEncoderTrainerTorch', autoEncoderTrainerTorch)
