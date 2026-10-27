@@ -1,5 +1,7 @@
 # mor
 
+**代码说明与交接指南（中文）：[README_CN.md](README_CN.md)**。包含安装、可运行示例、模块入口、验证记录和当前已知问题。
+
 A pyMOR-style model order reduction toolkit combining classical reduction
 methods (POD, balanced truncation, DMD, Gramian-based solvers, SVD variants) with
 neural-network reductors and a mesh-based geometry engine.
@@ -67,6 +69,11 @@ memory budget. Weighted POD whitens snapshots using diagonal square roots or
 Cholesky factors; sparse inputs and general sparse products follow the same
 bounded dense-conversion policy.
 
+Known exception: sparse snapshot centering currently allocates dense data before
+this budget check. Avoid `centerSnapshots=True` for large sparse inputs until
+the issue is fixed. Other confirmed numerical and qualification limits are listed
+in [README_CN.md](README_CN.md#7-已知问题).
+
 ## Layout
 
 ```text
@@ -78,6 +85,7 @@ mor/
   models/       system models
   solvers/      POD / Lyapunov solvers
   reductors/    POD / DMD / balanced truncation reductors
+  applications/ electric-motor thermal problem and POD application adapters
   nn/           neural-network reductors and geometry engine
   workflow/     task execution, validation, model storage and export
   runtime.py    runtime configuration and sessions
@@ -85,7 +93,7 @@ mor/
 tests/          in-repo regression and unit tests
 scripts/        runnable scripts and shared report utilities
 docs/           maintained interfaces, data formats and usage documentation
-applicationTests/  application example scripts and minimal input fixtures
+applicationTests/  optional local examples; ignored by Git, absent from a clone
 ```
 
 Documentation starts at [docs/README.md](docs/README.md). Script categories and
@@ -95,7 +103,9 @@ and data conventions are described in [docs/PROJECT_LAYOUT.md](docs/PROJECT_LAYO
 [OPTIMIZATION_PLAN.md](OPTIMIZATION_PLAN.md) remains the root entry point for
 the classical MOR optimization workflow used by the repository skill.
 
-The checkout keeps source code, tests, documentation and minimal example inputs.
+The repository tracks source code, tests, documentation and maintained scripts.
+Local application examples and their inputs require separate delivery; the
+handoff archive manifest identifies any examples included as supplements.
 Historical checkpoints, reports, archives and generated datasets have been
 removed. Experiment scripts create output directories as needed; use
 `reports/<topic>/<run>/` for results and `temp/experiments/<run>/` for scratch data,

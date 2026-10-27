@@ -2,6 +2,8 @@
 
 这里维护当前代码的接口、数据格式和使用方法。所有运行命令以仓库根目录为工作目录；示例数据和 checkpoint 由调用方准备，生成结果不随源码提交。安装依赖以 [pyproject.toml](../pyproject.toml) 为准。
 
+接手项目先阅读 [代码说明与交接指南](../README_CN.md)，其中包含安装、可运行示例、模块说明、已知问题和交接包范围。
+
 ## 核心与组装
 
 | 文档 | 内容 |
@@ -12,6 +14,8 @@
 | [DMD 契约](contracts/DMD_CONTRACT.md) | 快照、秩、控制辨识和 Hankel 内存预算 |
 | [热物理算子](thermal/thermal_physical_operator.md) | 网格、材料、边界、接触与稳态/瞬态求解 |
 | [部件降阶与热耦合](thermal/coupled_thermal_rom.md) | 基底投影、接触与油液节点、整机预测和守恒 |
+| [仿射热 ROM](thermal/affine_thermal_rom.md) | 固定 Robin 空间模式、在线系数变化、接口输出和独立重载 |
+| [电机应用层](../mor/applications/motor_thermal/README.md) | 线性热问题、描述系统装配、POD 封装和误差报告 |
 
 ## NN 与数据
 

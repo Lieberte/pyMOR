@@ -1,6 +1,6 @@
 ﻿# 项目目录与产物约定
 
-仓库保留源码、回归测试、脚本、维护文档与应用样例必需的微型输入。
+仓库保留源码、回归测试、维护脚本和文档。`applicationTests/` 是本机可选样例目录，整体由 Git 忽略；源码克隆不包含该目录，交接包是否另附样例以包内清单为准。
 
 | 路径 | 职责 |
 | --- | --- |
@@ -14,7 +14,7 @@
 | `tests/` | 单元、集成、算子契约与 benchmark smoke 测试 |
 | `scripts/` | 数据构建、训练、评估、检查与报告生成 |
 | `docs/` | 当前接口、数据格式与使用文档 |
-| `applicationTests/` | 应用样例代码与微型输入 |
+| `applicationTests/` | 本机可选应用样例代码与微型输入，不随 Git 克隆 |
 | `OPTIMIZATION_PLAN.md` | 经典 MOR 优化流程，供仓库技能引用 |
 
 后端和组装职责见 [BACKEND_ASSEMBLY.md](BACKEND_ASSEMBLY.md)，任务入口见 [TASK_SERVICE.md](integration/TASK_SERVICE.md)。
