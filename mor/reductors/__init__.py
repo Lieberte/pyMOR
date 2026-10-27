@@ -5,6 +5,7 @@ from .frequencyResponse import frequencyResponseReductor
 from .dmd import dmdReductor
 from .podDmd import podDmdReductor, podDmdResult
 from .thermalCoupling import thermalCouplingReductor
+from .affineThermal import affineThermalReductor
 
 reductorRegistry.register('balancedTruncation', balancedTruncationReductor)
 reductorRegistry.register('pod', podReductor)
@@ -30,6 +31,7 @@ __all__ = [
     'podReductor',
     'podResult',
     'thermalCouplingReductor',
+    'affineThermalReductor',
     'BalancedTruncationReductor',
     'ReducedSystem',
     'PodReductor',

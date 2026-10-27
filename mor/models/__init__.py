@@ -1,4 +1,5 @@
 from .modelsBase import modelBase
+from .affineThermal import affineThermalModel, affineThermalResult
 from .lti import ltiModel
 from .coupledThermal import coupledThermalModel, coupledThermalResult, reducedThermalComponent
 from .thermal import (
@@ -15,6 +16,8 @@ from .thermal import (
 )
 
 __all__ = [
+    'affineThermalModel',
+    'affineThermalResult',
     'modelBase',
     'ltiModel',
     'coupledThermalModel',

@@ -11,6 +11,10 @@
 /.idea/
 /performanceTests/
 /reports/
+/scripts/generate_motor_affine_pod_report.py
+/scripts/generate_motor_whole_pod_initial_audit.py
+/scripts/generate_motor_whole_pod_models.py
+/scripts/generate_motor_whole_pod_report.py
 /.chart-data-*/
 .pytest_cache/
 **/__pycache__/
