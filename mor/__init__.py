@@ -8,7 +8,7 @@ Feature distributions provide the dependencies for their selected capabilities.
 
 __version__ = "0.1.0"
 
-from . import algorithm, backends, models, operators, reductors, solvers
+from . import algorithm, applications, backends, models, operators, reductors, solvers
 from .algorithm.registry import algorithmRegistry, registerAlgorithm
 from .algorithm.dmd import dmdResult, exactDMD
 from .backends.registry import backendRegistry, registerBackend
@@ -28,6 +28,7 @@ from .solvers.registry import registerLyapunovSolver, solverRegistry
 __all__ = [
     "__version__",
     "algorithm",
+    "applications",
     "backends",
     "models",
     "operators",

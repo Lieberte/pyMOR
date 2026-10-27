@@ -21,3 +21,4 @@
 /_tmp_*
 /.tmp_*.json
 /feishu_doc_read_auth.png
+/.lark-completion-message.txt
